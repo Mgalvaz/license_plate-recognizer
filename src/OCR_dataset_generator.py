@@ -14,6 +14,7 @@ Output:
     - y shape: (num_examples, 1, 7)
 """
 import random
+import os
 from sys import argv
 import torch
 import numpy as np
@@ -63,26 +64,25 @@ def augment_image(img):
     img = random_brightness_contrast(img) # Change brightness
     return img
 
-if __name__ == '__main__':
-    font = ImageFont.truetype('arial.ttf', 12)
-    num_examples = int(argv[1]) if len(argv) > 1 and argv[1].isnumeric() else 10000
-    translator = dict((l, i) for i, l in enumerate('BCDFGHJKLMNPQRSTVWXYZ0123456789'))
 
-    #num_examples = 2
+font = ImageFont.truetype('arial.ttf', 12)
+num_examples = int(argv[1]) if len(argv) > 1 and argv[1].isnumeric() else 10000
+translator = dict((l, i) for i, l in enumerate('BCDFGHJKLMNPQRSTVWXYZ0123456789'))
 
-    x = torch.empty((num_examples, 1, 20, 70))
-    y = []
+x = torch.empty((num_examples, 1, 20, 70))
+y = []
 
-    for i in range(num_examples):
-        plate_text = generate_plate_text()
-        imag = Image.new("L", (70, 20), color=230)
-        draw = ImageDraw.Draw(imag)
-        draw.text((6, 4), plate_text, font=font, fill=50)
-        imag = augment_image(imag)
-        x[i] =  torch.tensor(np.array(imag), dtype=torch.float32).unsqueeze(0) / 255.0
-        y.append(torch.tensor(np.array([translator[l] for l in plate_text if l != ' '])))
+for i in range(num_examples):
+    plate_text = generate_plate_text()
+    imag = Image.new("L", (70, 20), color=230)
+    draw = ImageDraw.Draw(imag)
+    draw.text((6, 4), plate_text, font=font, fill=50)
+    imag = augment_image(imag)
+    x[i] =  torch.tensor(np.array(imag), dtype=torch.float32).unsqueeze(0) / 255.0
+    y.append(torch.tensor(np.array([translator[l] for l in plate_text if l != ' '])))
 
-    torch.save((x,y), 'ocr_dataset.pt')
+os.makedirs('datasets',exist_ok=True)
+torch.save((x,y), 'datasets/ocr_dataset.pt')
 
 
 
