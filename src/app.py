@@ -7,6 +7,10 @@ class MyModel(nn.Module):
 
     def __init__(self):
         super(MyModel, self).__init__()
+        self.c2d_1 = nn.Conv2d(1, 32, (3,3))
+        self.pool_1 = nn.MaxPool2d(2, 1)
+        self.c2d_2 = nn.Conv2d(1, 32, (3, 3))
+        self.pool_2 = nn.MaxPool2d(2, 1)
         self.rnn = nn.RNN(10, 20, batch_first=True)
         self.fc = nn.Linear(20, 10)
 
@@ -58,7 +62,7 @@ if __name__ == "__main__":
     i = 'y'
     while i == 'y':
         x = input('Escribe la matricula: ')
-        m = torch.zeros(4, 10)
+        m = torch.zeros(len(x), 10)
         for j, l in enumerate(x):
             m[j, int(l)] = 1
         pred = model(m.unsqueeze(0))
