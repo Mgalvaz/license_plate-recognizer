@@ -1,22 +1,32 @@
 import torch
 import random
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 class MyModel(nn.Module):
 
     def __init__(self):
         super(MyModel, self).__init__()
-        self.c2d_1 = nn.Conv2d(1, 32, (3,3))
-        self.pool_1 = nn.MaxPool2d(2, 1)
-        self.c2d_2 = nn.Conv2d(1, 32, (3, 3))
-        self.pool_2 = nn.MaxPool2d(2, 1)
-        self.rnn = nn.RNN(10, 20, batch_first=True)
-        self.fc = nn.Linear(20, 10)
+        #CNN
+        self.c2d_1 = nn.Conv2d(1, 32, (3,3), padding=1)
+        self.pool_1 = nn.MaxPool2d(2, 2)
+        self.c2d_2 = nn.Conv2d(32, 64, (3, 3), padding=1)
+        self.pool_2 = nn.MaxPool2d(2, 2)
+
+        #RNN
+        self.rnn = nn.RNN(320, 64, batch_first=True)
+
+        #Classifier
+        self.fc = nn.Linear(64, 10)
 
     def forward(self, x):
-        out, _ = self.rnn(x)
-        out = self.fc(out)
+        _, c, h, w = x.size()
+        assert (c, h, w) == (1, 20, 94), f'Input size ({c}, {h}, {w}) does not correspond to expected size (1, 20, 94)'
+        x = F.relu(self.c2d_1(x))
+        x = self.pool_1(x)
+        x = F.relu(self.c2d_2(x))
+        x = self.pool_2(x)
         return out
 
 if __name__ == "__main__":
