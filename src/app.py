@@ -3,6 +3,7 @@ import random
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from OCR_dataset_generator import SyntheticPlateDataset
 
 class MyModel(nn.Module):
 
@@ -15,7 +16,7 @@ class MyModel(nn.Module):
         self.pool_2 = nn.MaxPool2d(2, 2)
 
         #RNN
-        self.rnn = nn.RNN(320, 64, batch_first=True)
+        self.rnn = nn.RNN(320, 64, batch_first=True) #320 = 64 * 5 = (channels * height) as if it were reading the image left to right
 
         #Classifier
         self.fc = nn.Linear(64, 10)
@@ -27,6 +28,15 @@ class MyModel(nn.Module):
         x = self.pool_1(x)
         x = F.relu(self.c2d_2(x))
         x = self.pool_2(x)
+
+        b, c, h, w = x.size()
+
+        # convertimos a secuencia: ancho -> seq_len, features = channels*height
+        x = x.permute(0, 3, 1, 2)  # (batch, width, channels, height)
+        x = x.reshape(b, w, c * h)  # (batch, seq_len, input_size)
+
+        out, _ = self.rnn(x)  # (batch, seq_len, hidden_size)
+        out = self.fc(out)
         return out
 
 if __name__ == "__main__":
@@ -35,6 +45,8 @@ if __name__ == "__main__":
     input_size = 10  # codificamos dígitos 0-9 como one-hot
     output_size = 10  # número de clases posibles (0-9)
     num_samples = 1000
+
+    dataset = SyntheticPlateDataset(num_samples=400)
 
 
     # Crear dataset sencillo

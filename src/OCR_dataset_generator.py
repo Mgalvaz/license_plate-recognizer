@@ -15,8 +15,11 @@ Output:
 """
 import random
 import os
+import warnings
 from sys import argv
 import torch
+from torch.utils.data import Dataset
+from torchvision import transforms
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
@@ -64,27 +67,67 @@ def augment_image(img):
     img = random_brightness_contrast(img) # Change brightness
     return img
 
-font = ImageFont.truetype('arial.ttf', 15)
+
+class SyntheticPlateDataset(Dataset):
+    def __init__(self, num_samples=10000, transform=None, precomputed_file=None):
+        super().__init__()
+        if precomputed_file and os.path.exists(precomputed_file):
+            self.use_precomputed = True
+            self.imgs, self.labels = torch.load(precomputed_file, weights_only=True)
+            if num_samples > len(self.labels):
+                warnings.warn(
+                    f"\nWARNING: Received {num_samples} samples, "
+                    f"but precomputed file only has {len(self.labels)}.\n"
+                    f"Proceeding with {len(self.labels)} samples.\n",
+                    UserWarning
+                )
+                self.num_samples = len(self.labels)
+            else:
+                self.num_samples = num_samples
+        else:
+            self.use_precomputed = False
+            self.num_samples = num_samples
+            self.font_main = ImageFont.truetype('arial.ttf', 15)
+            self.font_small = ImageFont.truetype('arial.ttf', 5)
+            self.transform = transform or transforms.ToTensor()
+            self.translator = dict((l, n) for n, l in enumerate('BCDFGHJKLMNPQRSTVWXYZ0123456789'))
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+        if self.use_precomputed:
+            return self.imgs[idx], self.labels[idx]
+        else:
+            plate_text = generate_plate_text()
+
+            img = Image.new("L", (94, 20), color=100)
+            draw = ImageDraw.Draw(img)
+            draw.rectangle([4, 2, 16, 19], fill=55)
+            draw.rectangle([16, 2, 89, 19], fill=230)
+            draw.text((8, 12), 'E', font=self.font_small, fill=230)
+            draw.text((18, 2), plate_text, font=self.font_main, fill=50)
+            img = augment_image(img)
+
+            img = self.transform(img)
+            label = torch.tensor([self.translator[l] for l in plate_text if l != ' '], dtype=torch.long)
+
+            return img, label
+
+
 num_examples = int(argv[1]) if len(argv) > 1 and argv[1].isnumeric() else 10000
-translator = dict((l, i) for i, l in enumerate('BCDFGHJKLMNPQRSTVWXYZ0123456789'))
+dataset = SyntheticPlateDataset(num_samples=num_examples, precomputed_file='datasets/ocr_dataset.pt')
 
-x = torch.empty((num_examples, 1, 20, 94))
-y = []
+X = torch.empty((len(dataset), 1, 20, 94))
+Y = []
 
-for i in range(num_examples):
-    plate_text = generate_plate_text()
-    imag = Image.new("L", (94, 20), color=100)
-    draw = ImageDraw.Draw(imag)
-    draw.rectangle([4, 2, 16, 19], fill=55)
-    draw.rectangle([16, 2, 89, 19], fill=230)
-    draw.text((8, 12), 'E', font=ImageFont.truetype('arial.ttf', 5), fill=230)
-    draw.text((18, 2), plate_text, font=font, fill=50)
-    imag = augment_image(imag)
-    x[i] =  torch.tensor(np.array(imag), dtype=torch.float32).unsqueeze(0) / 255.0
-    y.append(torch.tensor(np.array([translator[l] for l in plate_text if l != ' '])))
+for i in range(len(dataset)):
+    x, y = dataset[i]
+    X[i] = x
+    Y.append(y)
 
 os.makedirs('datasets',exist_ok=True)
-torch.save((x,y), 'datasets/ocr_dataset.pt')
+torch.save((X,Y), 'datasets/ocr_dataset.pt')
 
 
 
