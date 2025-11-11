@@ -116,7 +116,7 @@ class SyntheticPlateDataset(Dataset):
 
 
 num_examples = int(argv[1]) if len(argv) > 1 and argv[1].isnumeric() else 10000
-dataset = SyntheticPlateDataset(num_samples=num_examples, precomputed_file='datasets/ocr_dataset.pt')
+dataset = SyntheticPlateDataset(num_samples=num_examples)
 
 X = torch.empty((len(dataset), 1, 20, 94))
 Y = []
