@@ -90,7 +90,7 @@ class SyntheticPlateDataset(Dataset):
             self.font_main = ImageFont.truetype('arial.ttf', 15)
             self.font_small = ImageFont.truetype('arial.ttf', 5)
             self.transform = transform or transforms.ToTensor()
-            self.translator = dict((l, n) for n, l in enumerate('BCDFGHJKLMNPQRSTVWXYZ0123456789'))
+            self.translator = dict((l, n) for n, l in enumerate('BCDFGHJKLMNPQRSTVWXYZ0123456789', start=1))
 
     def __len__(self):
         return self.num_samples
@@ -104,11 +104,10 @@ class SyntheticPlateDataset(Dataset):
             img = Image.new("L", (94, 20), color=100)
             draw = ImageDraw.Draw(img)
             draw.rectangle([4, 2, 16, 19], fill=55)
-            draw.rectangle([16, 2, 89, 19], fill=230)
+            draw.rectangle([16, 2, 91, 19], fill=230)
             draw.text((8, 12), 'E', font=self.font_small, fill=230)
             draw.text((18, 2), plate_text, font=self.font_main, fill=50)
             img = augment_image(img)
-
             img = self.transform(img)
             label = torch.tensor([self.translator[l] for l in plate_text if l != ' '], dtype=torch.long)
 
@@ -126,7 +125,7 @@ for i in range(len(dataset)):
     X[i] = x
     Y.append(y)
 
-os.makedirs('datasets',exist_ok=True)
+os.makedirs('datasets', exist_ok=True)
 torch.save((X,Y), 'datasets/ocr_dataset.pt')
 
 

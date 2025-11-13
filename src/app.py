@@ -1,19 +1,27 @@
 import torch
 import random
+import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn import Sequential
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader
-
-from OCR_dataset_generator import SyntheticPlateDataset
+from torch.utils.data import DataLoader, random_split
+from OCR_dataset import SyntheticPlateDataset
 
 def collate_fn(batch: list):
     imgs, labels = zip(*batch)
     imgs = torch.stack(imgs)
-    lengths = [len(lbl) for lbl in labels]
     labels = pad_sequence(labels, batch_first=True, padding_value=-1)  # rellena con -1
-    return imgs, labels, lengths
+    return imgs, labels
+
+def ctc_decode(pred_seq, blank=0):
+    decoded = []
+    prev = None
+    for p in pred_seq:
+        if p != blank and p != prev:
+            decoded.append(p)
+        prev = p
+    return decoded
 
 class MyModel(nn.Module):
 
@@ -49,16 +57,27 @@ class MyModel(nn.Module):
 
 if __name__ == "__main__":
     #Datset loading
-    dataset = SyntheticPlateDataset(num_samples=400, precomputed_file='datasets/ocr_dataset.pt')
-    loader = DataLoader(dataset, batch_size=64, shuffle=True, collate_fn=collate_fn)
+    total = 700
+    num_test = total//7
+    num_train = total - num_test
+    dataset = SyntheticPlateDataset(num_samples=total, precomputed_file='../datasets/ocr_dataset.pt')
+    train_dataset, test_dataset = random_split(dataset, [num_train, num_test])
+
+    train_loader = DataLoader(train_dataset, batch_size=64, collate_fn=collate_fn)
+    test_loader = DataLoader(test_dataset, batch_size=64,  collate_fn=collate_fn)
 
     #Model loading
     model = MyModel()
     criterion = nn.CTCLoss(zero_infinity=True)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
 
+
     #Training
-    for batch_images, batch_labels in loader:
+    iteration = 1
+    num_iterations = len(train_loader)
+    for batch_images, batch_labels in train_loader:
+        print(f'iteration: {iteration} out of {num_iterations}')
+        iteration += 1
         optimizer.zero_grad()
 
         batch_output = model(batch_images)
@@ -72,15 +91,21 @@ if __name__ == "__main__":
         loss.backward()
         optimizer.step()
 
+
     #Testing
+    model.eval()
+    correct = 0
     with torch.no_grad():
-        output = model(img.unsqueeze(0))  # (1, T, C)
-        pred = output.argmax(2).squeeze(0).cpu().numpy()
+        for batch_images, batch_labels in test_loader:
+            output = model(batch_images).permute(1, 0 ,2)
+            preds = output.argmax(dim=2).cpu().numpy().T
 
-    decoded = []
-    prev = -1
-    for p in pred:
-        if p != prev and p != 0:  # 0 = blank
-            decoded.append(p)
-        prev = p
+            batch_labels = [lbl[lbl != -1] for lbl in batch_labels]
+            decoded_preds = [ctc_decode(seq) for seq in preds]
 
+            for pred, target in zip(decoded_preds, batch_labels):
+                target = target.cpu().numpy().tolist()
+                if pred == target:
+                    correct += 1
+
+    print(f"Exact match accuracy: {correct / num_test:.2%}")
