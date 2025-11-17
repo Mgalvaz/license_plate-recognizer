@@ -1,9 +1,6 @@
 import torch
-import random
-import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-from torch.nn import Sequential
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, random_split
 from PIL import Image
@@ -11,15 +8,15 @@ from torchvision.transforms import transforms, v2
 
 from OCR_dataset import SyntheticPlateDataset
 
-TRANSLATOR = dict((l, n) for n, l in enumerate('BCDFGHJKLMNPQRSTVWXYZ0123456789', start=1))
+TRANSLATOR = dict((l, n) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', start=1))
 
-def collate_fn(batch: list):
+def collate_fn(batch: list) -> tuple[torch.Tensor, torch.Tensor]:
     imgs, labels = zip(*batch)
     imgs = torch.stack(imgs)
     labels = pad_sequence(labels, batch_first=True, padding_value=-1)  # rellena con -1
     return imgs, labels
 
-def ctc_decode(pred_seq, blank=0):
+def ctc_decode(pred_seq: torch.Tensor, blank: int=0) -> list[int]:
     decoded = []
     prev = None
     for p in pred_seq:
@@ -28,40 +25,46 @@ def ctc_decode(pred_seq, blank=0):
         prev = p
     return decoded
 
-class MyModel(nn.Module):
+class CRNN(nn.Module):
 
     def __init__(self):
-        super(MyModel, self).__init__()
+        super(CRNN, self).__init__()
 
-        self.cnn = Sequential(
-            nn.Conv2d(1, 128, (3,3), padding=1),
+        self.cnn = nn.Sequential(
+            nn.Conv2d(1, 32, (3, 3), padding=1),  # (1, 32, 150) -> (32, 32, 150)
             nn.ReLU(),
-            nn.Conv2d(128, 256, (3, 3), padding=1),
+            nn.MaxPool2d(2, 2), # (32, 32, 150) -> (32, 16, 75)
+            nn.Conv2d(32, 64, (3, 3), padding=1),  # (32, 16, 75) -> (64, 16, 75)
             nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(256, 256, (3, 3), padding=1),
+            nn.MaxPool2d(2, 2),  # (64, 16, 75) -> (64, 8, 37)
+            nn.Conv2d(64, 128, (3, 3), padding=1),  # (64, 8, 37) -> (128, 8, 37)
             nn.ReLU(),
-            nn.Conv2d(256, 512, (3, 3), padding=1),
-            nn.ReLU()
+            nn.MaxPool2d((1, 2), (2,1)),  # (128, 8, 37) -> (128, 4, 36)
+            nn.Conv2d(128, 256, (3, 3), padding=1),  # (128, 4, 36) -> (256, 4, 36)
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, (3, 3), padding=1),  # (256, 4, 37) -> (256, 4, 36)
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 1), 1),  # (256, 4, 36) -> (256, 3, 36)
+            nn.Conv2d(256, 512, (3, 3), padding=0),  # (256, 3, 36) -> (512, 1, 34)
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
         )
 
-        self.rnn = nn.GRU(4608, 64, batch_first=True, bidirectional=True) #256 = 64 * 8 = (channels * height) as if it were reading the image left to right
+        self.rnn = nn.GRU(512, 256, num_layers=2, batch_first=True, bidirectional=True) # (36, 512) -> (512, 36)
 
-        self.fc = nn.Linear(128, 32) #128 = 64 * 2 because GRU is bidirectional, 32 = num_classes + 1 (for <blank>)
+        self.fc = nn.Linear(512, 37) # (512, 36) -> (37, 36)
 
-    def forward(self, x):
-        _, ic, ih, iw = x.size()
-        assert (ic, ih, iw) == (1, 18, 91), f'Input size ({ic}, {ih}, {iw}) does not correspond to expected size (1, 18, 91)'
-        x = self.cnn(x)
-        #print('CNN', x.min(), x.max())
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _, ic, ih, iw = x.size() # (batch, channels=1, height=32, width=150)
+        assert (ic, ih, iw) == (1, 32, 150), f'Input size ({ic}, {ih}, {iw}) does not correspond to expected size (1, 32, 150)'
+        x = self.cnn(x) # (batch, channels=512, height=1, width=34)
 
-        b, c, h, w = x.size()
-        x = x.permute(0, 3, 1, 2)  # (batch, width, channels, height)
-        x = x.reshape(b, w, c * h)  # (batch, seq_len, input_size)
+        x = x.squeeze(2).permute(0, 2, 1)  # (batch, width=34, channels=512)
 
-        x, _ = self.rnn(x)
-        #print('RNN', x.min(), x.max())
-        x = self.fc(x)
+        x, _ = self.rnn(x) # (batch, seq_len=34, channels=512)
+        x = self.fc(x) # (batch, seq_len=34, label=37)
         return x.log_softmax(2)
 
 
@@ -78,7 +81,7 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=64,  collate_fn=collate_fn)
 
     #Model loading
-    model = MyModel()
+    model = CRNN()
     criterion = nn.CTCLoss(zero_infinity=True)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
 
@@ -105,7 +108,7 @@ if __name__ == "__main__":
             optimizer.step()
         print()
 
-
+    torch.stack()
     #Testing
     model.eval()
     correct = 0
@@ -127,10 +130,12 @@ if __name__ == "__main__":
     input('Predecir la imagen')
     transform = transforms.Compose([
         v2.Grayscale(num_output_channels=1),
-        v2.Resize((18, 91)),
+        v2.Resize((32, 150)),
         v2.PILToTensor(),
         v2.ToDtype(torch.float, True),
     ])
+
+    torch.argmax()
 
     with torch.no_grad():
         image = Image.open('src/3245_LCX.png')
