@@ -1,6 +1,11 @@
+import os.path
+from sys import argv
+
 import torch
+import argparse
 import torch.nn as nn
 import torch.optim as optim
+from torch.functional import F
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, random_split
 from PIL import Image
@@ -9,11 +14,13 @@ from torchvision.transforms import transforms, v2
 from OCR_dataset import SyntheticPlateDataset
 
 TRANSLATOR = dict((l, n) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', start=1))
+REVERSE_TRANSLATOR = dict((n, l) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', start=1))
+NUM_CLASSES = len(TRANSLATOR) + 1
 
 def collate_fn(batch: list) -> tuple[torch.Tensor, torch.Tensor]:
     imgs, labels = zip(*batch)
     imgs = torch.stack(imgs)
-    labels = pad_sequence(labels, batch_first=True, padding_value=-1)  # rellena con -1
+    labels = pad_sequence(labels, batch_first=True, padding_value=-1)
     return imgs, labels
 
 def ctc_decode(pred_seq: torch.Tensor, blank: int=0) -> list[int]:
@@ -31,30 +38,31 @@ class CRNN(nn.Module):
         super(CRNN, self).__init__()
 
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, (3, 3), padding=1),  # (1, 32, 150) -> (32, 32, 150)
+            nn.Conv2d(1, 64, (3, 3), padding=1),  # (1, 32, 150) -> (32, 32, 150)
             nn.ReLU(),
             nn.MaxPool2d(2, 2), # (32, 32, 150) -> (32, 16, 75)
-            nn.Conv2d(32, 64, (3, 3), padding=1),  # (32, 16, 75) -> (64, 16, 75)
+            nn.Conv2d(64, 128, (3, 3), padding=1),  # (32, 16, 75) -> (64, 16, 75)
             nn.ReLU(),
             nn.MaxPool2d(2, 2),  # (64, 16, 75) -> (64, 8, 37)
-            nn.Conv2d(64, 128, (3, 3), padding=1),  # (64, 8, 37) -> (128, 8, 37)
+            nn.Conv2d(128, 256, (3, 3), padding=1),  # (64, 8, 37) -> (128, 8, 37)
             nn.ReLU(),
             nn.MaxPool2d((1, 2), (2,1)),  # (128, 8, 37) -> (128, 4, 36)
-            nn.Conv2d(128, 256, (3, 3), padding=1),  # (128, 4, 36) -> (256, 4, 36)
-            nn.BatchNorm2d(256),
+            nn.Conv2d(256, 512, (3, 3), padding=1),  # (128, 4, 36) -> (256, 4, 36)
+            nn.BatchNorm2d(512),
             nn.ReLU(),
-            nn.Conv2d(256, 256, (3, 3), padding=1),  # (256, 4, 37) -> (256, 4, 36)
-            nn.BatchNorm2d(256),
+            nn.Conv2d(512, 512, (3, 3), padding=1),  # (256, 4, 37) -> (256, 4, 36)
+            nn.BatchNorm2d(512),
             nn.ReLU(),
+            nn.Dropout2d(0.5),
             nn.MaxPool2d((2, 1), 1),  # (256, 4, 36) -> (256, 3, 36)
-            nn.Conv2d(256, 512, (3, 3), padding=0),  # (256, 3, 36) -> (512, 1, 34)
+            nn.Conv2d(512, 512, (3, 3), padding=0),  # (256, 3, 36) -> (512, 1, 34)
             nn.BatchNorm2d(512),
             nn.ReLU(),
         )
 
-        self.rnn = nn.GRU(512, 256, num_layers=2, batch_first=True, bidirectional=True) # (36, 512) -> (512, 36)
+        self.rnn = nn.GRU(512, 256, num_layers=2, batch_first=True, bidirectional=True) # (34, 512) -> (512, 34)
 
-        self.fc = nn.Linear(512, 37) # (512, 36) -> (37, 36)
+        self.decoder = nn.Linear(512, NUM_CLASSES) # (512, 34) -> (37, 34)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _, ic, ih, iw = x.size() # (batch, channels=1, height=32, width=150)
@@ -64,51 +72,69 @@ class CRNN(nn.Module):
         x = x.squeeze(2).permute(0, 2, 1)  # (batch, width=34, channels=512)
 
         x, _ = self.rnn(x) # (batch, seq_len=34, channels=512)
-        x = self.fc(x) # (batch, seq_len=34, label=37)
-        return x.log_softmax(2)
 
+        x = self.decoder(x) # (batch, seq_len=34, label=37)
+        return x
 
-if __name__ == "__main__":
-    #Datset loading
-    total = 700
-    num_test = total//7
-    num_train = total - num_test
-    num_epochs = 1
-    dataset = SyntheticPlateDataset(num_samples=total)
+def main():
+
+    parser = argparse.ArgumentParser(description='OCR_model training')
+    parser.add_argument('total', metavar='N', type=int, nargs='?', default=10000, help='Number of train images in the dataset')
+    parser.add_argument('--model-path', type=str, default=None, help='Trained model path (.pth) for loading')
+    parser.add_argument('--epochs', type=int, default=1, help='Number of epochs during the training')
+    parser.add_argument('--output-path', type=str, default='models/OCR_model.pth', help='Path to save the trained model (.pth)')
+    args = parser.parse_args()
+
+    # Load dataset
+    num_test = args.total//7
+    num_train = args.total - num_test
+    dataset = SyntheticPlateDataset(num_samples=args.total)
     train_dataset, test_dataset = random_split(dataset, [num_train, num_test])
 
     train_loader = DataLoader(train_dataset, batch_size=64, collate_fn=collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=64,  collate_fn=collate_fn)
 
-    #Model loading
+    # Model loading
+    device = torch.device('cpu')
     model = CRNN()
-    criterion = nn.CTCLoss(zero_infinity=True)
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    criterion = nn.CTCLoss(blank=0, zero_infinity=True, reduction='sum')
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
+
+    if args.model_path:
+        print(f'Loading model from {args.model_path}')
+        checkpoint = torch.load(args.model_path, weights_only=True, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        last_epoch = checkpoint['epoch']
+        loss = checkpoint['loss']
+        print(f'Checkpoint loaded. Last epoch: {last_epoch}, with loss: {loss}')
+    else:
+        last_epoch = 0
 
 
-    #Training
-    for epoch in range(num_epochs):
-        print(f'Epoch {epoch+1} out of {num_epochs}')
-        iteration = 1
-        num_iterations = len(train_loader)
+    # Training
+    model.train()
+    num_epochs = args.epochs + last_epoch
+    for epoch in range(last_epoch+1, num_epochs+1):
+        print(f'Epoch {epoch}/{num_epochs}', end=' ')
         for batch_images, batch_labels in train_loader:
-            print(f'iteration: {iteration} out of {num_iterations}')
-            iteration += 1
+            # zero the parameter gradients
             optimizer.zero_grad()
-
+            # forward
             batch_output = model(batch_images)
-            log_probs = batch_output.permute(1, 0, 2)
+            log_probs = F.log_softmax(batch_output, dim=2).permute(1, 0 ,2)
             input_lengths = torch.full(size=(batch_output.size(0),), fill_value=batch_output.size(1), dtype=torch.long)
-            batch_labels = [lbl[lbl != -1] for lbl in batch_labels] # Remove -1 padding
-            targets = torch.cat(batch_labels)
+            targets = batch_labels
+            batch_labels = [lbl[lbl != -1] for lbl in batch_labels]
             target_lengths = torch.tensor([len(l) for l in batch_labels], dtype=torch.long)
-
             loss = criterion(log_probs, targets, input_lengths, target_lengths)
+            # backward
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            # optimize
             optimizer.step()
-        print()
+        print(f'loss: {loss.item()}')
 
-    torch.stack()
     #Testing
     model.eval()
     correct = 0
@@ -124,7 +150,7 @@ if __name__ == "__main__":
                 target = target.cpu().numpy().tolist()
                 if pred == target:
                     correct += 1
-    print(f"Exact match accuracy: {correct / num_test:.2%}")
+        print(f"Exact match accuracy: {correct / num_test:.2%}")
 
 
     input('Predecir la imagen')
@@ -135,17 +161,25 @@ if __name__ == "__main__":
         v2.ToDtype(torch.float, True),
     ])
 
-    torch.argmax()
-
     with torch.no_grad():
         image = Image.open('src/3245_LCX.png')
-        #image.show()
-        #input('siguiente')
         ten = transform(image)
+        v2.ToPILImage()(ten.squeeze(0)).show()
         ten = ten.unsqueeze(0)
-        #v2.ToPILImage()(ten).show()
-        #input('siguiente')
+        input('siguiente')
         out = model(ten)
         pred = out.argmax(dim=2).cpu().numpy().T
         decoded_preds = ctc_decode(pred)
-        print(decoded_preds)
+        print([REVERSE_TRANSLATOR[n[0]] for n in decoded_preds])
+
+
+    """torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss.item(),
+    }, args.output_path)"""
+
+
+if __name__ == "__main__":
+    main()
