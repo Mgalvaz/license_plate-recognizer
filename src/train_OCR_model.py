@@ -94,11 +94,14 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=64, collate_fn=collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=64,  collate_fn=collate_fn)
 
+    for img, _ in train_loader:
+        pass
+
     # Model loading
     device = torch.device('cpu')
     model = CRNN()
     criterion = nn.CTCLoss(blank=0, zero_infinity=True, reduction='sum')
-    optimizer = optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = optim.Adam(model.parameters(), lr=0.00001)
 
     if args.model_path:
         print(f'Loading model from {args.model_path}')
@@ -113,44 +116,45 @@ def main():
 
 
     # Training
-    model.train()
-    num_epochs = args.epochs + last_epoch
-    for epoch in range(last_epoch+1, num_epochs+1):
-        print(f'Epoch {epoch}/{num_epochs}', end=' ')
-        for batch_images, batch_labels in train_loader:
-            # zero the parameter gradients
-            optimizer.zero_grad()
-            # forward
-            batch_output = model(batch_images)
-            log_probs = F.log_softmax(batch_output, dim=2).permute(1, 0 ,2)
-            input_lengths = torch.full(size=(batch_output.size(0),), fill_value=batch_output.size(1), dtype=torch.long)
-            targets = batch_labels
-            batch_labels = [lbl[lbl != -1] for lbl in batch_labels]
-            target_lengths = torch.tensor([len(l) for l in batch_labels], dtype=torch.long)
-            loss = criterion(log_probs, targets, input_lengths, target_lengths)
-            # backward
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            # optimize
-            optimizer.step()
-        print(f'loss: {loss.item()}')
+    if args.total > 0:
+        model.train()
+        num_epochs = args.epochs + last_epoch
+        for epoch in range(last_epoch+1, num_epochs+1):
+            print(f'Epoch {epoch}/{num_epochs}', end=' ')
+            for batch_images, batch_labels in train_loader:
+                # zero the parameter gradients
+                optimizer.zero_grad()
+                # forward
+                batch_output = model(batch_images)
+                log_probs = F.log_softmax(batch_output, dim=2).permute(1, 0 ,2)
+                input_lengths = torch.full(size=(batch_output.size(0),), fill_value=batch_output.size(1), dtype=torch.long)
+                targets = batch_labels
+                batch_labels = [lbl[lbl != -1] for lbl in batch_labels]
+                target_lengths = torch.tensor([len(l) for l in batch_labels], dtype=torch.long)
+                loss = criterion(log_probs, targets, input_lengths, target_lengths)
+                # backward
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                # optimize
+                optimizer.step()
+            print(f'loss: {loss.item()}')
 
-    #Testing
-    model.eval()
-    correct = 0
-    with torch.no_grad():
-        for batch_images, batch_labels in test_loader:
-            output = model(batch_images).permute(1, 0 ,2)
-            preds = output.argmax(dim=2).cpu().numpy().T
+        #Testing
+        model.eval()
+        correct = 0
+        with torch.no_grad():
+            for batch_images, batch_labels in test_loader:
+                output = model(batch_images).permute(1, 0 ,2)
+                preds = output.argmax(dim=2).cpu().numpy().T
 
-            batch_labels = [lbl[lbl != -1] for lbl in batch_labels]
-            decoded_preds = [ctc_decode(seq) for seq in preds]
+                batch_labels = [lbl[lbl != -1] for lbl in batch_labels]
+                decoded_preds = [ctc_decode(seq) for seq in preds]
 
-            for pred, target in zip(decoded_preds, batch_labels):
-                target = target.cpu().numpy().tolist()
-                if pred == target:
-                    correct += 1
-        print(f"Exact match accuracy: {correct / num_test:.2%}")
+                for pred, target in zip(decoded_preds, batch_labels):
+                    target = target.cpu().numpy().tolist()
+                    if pred == target:
+                        correct += 1
+            print(f"Exact match accuracy: {correct / num_test:.2%}")
 
 
     input('Predecir la imagen')

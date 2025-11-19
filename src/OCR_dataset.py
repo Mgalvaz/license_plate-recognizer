@@ -31,7 +31,7 @@ def generate_plate_text() -> str:
     weights = [10] * len(consonants) + [1] * len(vowels)
     letters = ''.join(random.choices(alphabet, weights=weights, k=3))
 
-    return f"{nums}  {letters}"
+    return f"{nums} {letters}"
 
 
 def add_gaussian_noise(img: Image, mean: int = 0, std: int = 8) -> Image:
@@ -98,8 +98,8 @@ class SyntheticPlateDataset(Dataset):
     def __init__(self, num_samples: int = 10000):
         super().__init__()
         self.num_samples = num_samples
-        self.font_main = ImageFont.truetype('arial.ttf', 25)
-        self.font_small = ImageFont.truetype('arial.ttf', 8)
+        self.font_main = ImageFont.truetype('arial.ttf', 27)
+        self.font_small = ImageFont.truetype('arial.ttf', 6)
         self.transform = augment_image_v2
         self.translator = dict((l, n) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', start=1))
 
@@ -110,9 +110,9 @@ class SyntheticPlateDataset(Dataset):
         plate_text = generate_plate_text()
         plate = Image.new("L", (150, 32), color=230)
         draw = ImageDraw.Draw(plate)
-        draw.rectangle([0, 0, 20, 32], fill=55)
-        draw.text((8, 18), 'E', font=self.font_small, fill=230)
-        draw.text((22, 2), plate_text, font=self.font_main, fill=50)
+        draw.rectangle([3, 3, 15, 29], fill=134)
+        draw.text((7, 19), 'E', font=self.font_small, fill=230)
+        draw.text((20, 2), plate_text, font=self.font_main, fill=50)
         plate = self.transform(plate)
         label = torch.tensor([self.translator[l] for l in plate_text if l != ' '], dtype=torch.long)
         return plate, label
