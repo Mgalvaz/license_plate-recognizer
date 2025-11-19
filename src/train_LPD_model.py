@@ -21,38 +21,26 @@ Output:
 """
 import argparse
 import torch
-import torch.optim as optim
-import torch.nn as nn
-from torch.functional import F
-from torch.utils.data import DataLoader, random_split
-from torch.nn.utils.rnn import pad_sequence
-from PIL import Image
-from torchvision.transforms import transforms, v2
-from OCR_dataset import SyntheticPlateDataset
+from torch import nn
 
-TRANSLATOR = dict((l, n) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', start=1))
-REVERSE_TRANSLATOR = dict((n, l) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', start=1))
-NUM_CLASSES = len(TRANSLATOR) + 1
+class InceptionResidual(nn.Module):
 
-def collate_fn(batch: list) -> tuple[torch.Tensor, torch.Tensor]:
-    imgs, labels = zip(*batch)
-    imgs = torch.stack(imgs)
-    labels = pad_sequence(labels, batch_first=True, padding_value=-1)
-    return imgs, labels
+    def __init__(self, inc, outc, *args, include_max_pool=True):
+        super().__init__()
 
-def ctc_decode(pred_seq: torch.Tensor, blank: int=0) -> list[int]:
-    decoded = []
-    prev = None
-    for p in pred_seq:
-        if p != blank and p != prev:
-            decoded.append(p)
-        prev = p
-    return decoded
+        self.inception: list[nn.Module] = [nn.Conv2d(inc, outc, kernel, padding=1) for kernel in args]
+
+        if include_max_pool:
+            self.inception.append(nn.MaxPool2d(2,2))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+        return x
 
 class CRNN(nn.Module):
 
     def __init__(self):
-        super(CRNN, self).__init__()
+        super().__init__()
 
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, (3, 3), padding=1),  # (1, 32, 150) -> (32, 32, 150)
@@ -93,13 +81,15 @@ class CRNN(nn.Module):
         x = self.decoder(x) # (batch, seq_len=34, label=37)
         return x
 
+
+
 def main():
 
     parser = argparse.ArgumentParser(description='OCR_model training')
-    parser.add_argument('total', metavar='N', type=int, default=10000, help='Number of train images in the dataset')
+    parser.add_argument('total', metavar='N', type=int, nargs='?', default=10000, help='Number of train images in the dataset')
     parser.add_argument('--model-path', type=str, default=None, help='Trained model path (.pth) for loading')
     parser.add_argument('--epochs', type=int, default=1, help='Number of epochs during the training')
-    parser.add_argument('--output-path', type=str, default=None, help='Path to save the trained model (.pth)')
+    parser.add_argument('--output-path', type=str, default='models/OCR_model.pth', help='Path to save the trained model (.pth)')
     args = parser.parse_args()
 
     # Load dataset
@@ -110,6 +100,9 @@ def main():
 
     train_loader = DataLoader(train_dataset, batch_size=64, collate_fn=collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=64,  collate_fn=collate_fn)
+
+    for img, _ in train_loader:
+        pass
 
     # Model loading
     device = torch.device('cpu')
@@ -191,13 +184,12 @@ def main():
         print([REVERSE_TRANSLATOR[n[0]] for n in decoded_preds])
 
 
-    if args.output_path:
-        torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': loss.item(),
-        }, args.output_path)
+    """torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss.item(),
+    }, args.output_path)"""
 
 
 if __name__ == "__main__":

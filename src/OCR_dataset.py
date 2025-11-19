@@ -1,18 +1,3 @@
-"""
-Script that generates the dataset to train the OCR CRNN using numpy and Pillow.
-
-Usage:
-    python generate_ocr_dataset.py [num_examples]
-
-Input:
-    num_examples (int, optional): Number of examples to generate. Default is 10000.
-
-Output:
-    Dataset is saved in 'ocr_dataset.pt' in PyTorch tensor format.
-
-    - x shape: (num_examples, 1, H, W)
-    - y shape: (num_examples, 1, 7)
-"""
 import random
 import torch
 from torch.utils.data import Dataset
