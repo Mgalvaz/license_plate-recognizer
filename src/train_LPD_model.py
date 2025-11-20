@@ -23,19 +23,42 @@ import argparse
 import torch
 from torch import nn
 
+
 class InceptionResidual(nn.Module):
 
     def __init__(self, inc, outc, *args, include_max_pool=True):
         super().__init__()
 
-        self.inception: list[nn.Module] = [nn.Conv2d(inc, outc, kernel, padding=1) for kernel in args]
-
+        # Inception module
+        num_branches = len(args) + (1 if include_max_pool else 0)
+        outc_hidden = outc//num_branches
+        self.inception: nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(inc, outc_hidden, kernel, padding=kernel//2 if type(kernel) == int else kernel[0]//2),
+                nn.BatchNorm2d(outc_hidden),
+                nn.ReLU()
+            ) for kernel in args])
         if include_max_pool:
-            self.inception.append(nn.MaxPool2d(2,2))
+            self.inception.append(nn.MaxPool2d(2, 2))
+        # Conv2D for the inception module
+        self.final_conv =  nn.Conv2d(outc, outc, 1)
+        # Decoder
+        self.decoder = nn.ReLU()
+
+        # Residual module
+        if inc == outc:
+            self.residual = nn.Identity()
+        else:
+            self.residual = nn.Conv2d(inc, outc, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = [module(x) for module in self.inception]
+        out = torch.cat(out, dim=1)
 
-        return x
+        out = self.final_conv(out) + self.residual(x)
+
+        out = self.decoder(out)
+        return out
 
 class CRNN(nn.Module):
 
