@@ -26,20 +26,32 @@ from torch import nn
 
 class InceptionResidual(nn.Module):
 
-    def __init__(self, inc, outc, *args, include_max_pool=True):
+    def __init__(self, inc: int, outc: int, *args: tuple[tuple[int, int] | int, ...], include_max_pool: bool =True) -> None:
         super().__init__()
 
         # Inception module
         num_branches = len(args) + (1 if include_max_pool else 0)
         outc_hidden = outc//num_branches
-        self.inception: nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(inc, outc_hidden, kernel, padding=kernel//2 if type(kernel) == int else kernel[0]//2),
+        self.inception = nn.ModuleList()
+        for kernel in args:
+            if isinstance(kernel, int):
+                pad = kernel // 2
+            else:
+                pad = (kernel[0] // 2, kernel[1] // 2)
+            self.branches.append(
+                nn.Sequential(
+                    nn.Conv2d(inc, outc_hidden, kernel, padding=pad),
+                    nn.BatchNorm2d(outc_hidden),
+                    nn.ReLU()
+                )
+            )
+        if include_max_pool:
+            self.inception.append(nn.Sequential(
+                nn.MaxPool2d(3, 1, padding=1),
+                nn.Conv2d(inc, outc_hidden, 1),
                 nn.BatchNorm2d(outc_hidden),
                 nn.ReLU()
-            ) for kernel in args])
-        if include_max_pool:
-            self.inception.append(nn.MaxPool2d(2, 2))
+            ))
         # Conv2D for the inception module
         self.final_conv =  nn.Conv2d(outc, outc, 1)
         # Decoder
@@ -66,31 +78,9 @@ class CRNN(nn.Module):
         super().__init__()
 
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 64, (3, 3), padding=1),  # (1, 32, 150) -> (32, 32, 150)
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2), # (32, 32, 150) -> (32, 16, 75)
-            nn.Conv2d(64, 128, (3, 3), padding=1),  # (32, 16, 75) -> (64, 16, 75)
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),  # (64, 16, 75) -> (64, 8, 37)
-            nn.Conv2d(128, 256, (3, 3), padding=1),  # (64, 8, 37) -> (128, 8, 37)
-            nn.ReLU(),
-            nn.MaxPool2d((1, 2), (2,1)),  # (128, 8, 37) -> (128, 4, 36)
-            nn.Conv2d(256, 512, (3, 3), padding=1),  # (128, 4, 36) -> (256, 4, 36)
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.Conv2d(512, 512, (3, 3), padding=1),  # (256, 4, 37) -> (256, 4, 36)
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.Dropout2d(0.5),
-            nn.MaxPool2d((2, 1), 1),  # (256, 4, 36) -> (256, 3, 36)
-            nn.Conv2d(512, 512, (3, 3), padding=0),  # (256, 3, 36) -> (512, 1, 34)
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
+            nn.Conv2d(1, 16, 5, padding=4) # (1, 128, 128) -> (16, )
+            InceptionResidual(16, 24, 6, 4, 2, include_max_pool=True) #()
         )
-
-        self.rnn = nn.GRU(512, 256, num_layers=2, batch_first=True, bidirectional=True) # (34, 512) -> (512, 34)
-
-        self.decoder = nn.Linear(512, NUM_CLASSES) # (512, 34) -> (37, 34)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _, ic, ih, iw = x.size() # (batch, channels=1, height=32, width=150)

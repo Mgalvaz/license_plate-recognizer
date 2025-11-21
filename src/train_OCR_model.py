@@ -51,7 +51,7 @@ def ctc_decode(pred_seq: torch.Tensor, blank: int=0) -> list[int]:
 
 class CRNN(nn.Module):
 
-    def __init__(self):
+    def __init__(self) -> None:
         super(CRNN, self).__init__()
 
         self.cnn = nn.Sequential(
