@@ -24,11 +24,39 @@ import argparse
 import torch
 from torch import nn
 from torch.functional import F
+from torch.optim import AdamW
 from torchvision.ops import box_iou
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection._utils import Matcher, BoxCoder
 
+def detection_loss(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors: list[torch.Tensor], gt_boxes: list[torch.Tensor], matcher: Matcher, box_coder: BoxCoder):
+    batch_size = cls_preds.size(0)
+    cls_loss = 0.0
+    reg_loss = 0.0
+
+    for i in range(batch_size):
+        # Match anchors with GT
+        iou_matrix = box_iou(anchors[i], gt_boxes[i])
+        matched_idxs = matcher(iou_matrix)
+        matched_mask = matched_idxs >= 0
+
+        # Classification loss
+        labels = torch.zeros_like(cls_preds[i][:, 0], dtype=torch.long)
+        labels[matched_mask] = 1
+        cls_loss += F.cross_entropy(cls_preds[i], labels)
+
+        # Regression loss for matched anchors
+        if matched_mask.sum() > 0:
+            matched_gt_boxes = gt_boxes[i][matched_idxs[matched_mask]]
+            matched_anchors = anchors[i][matched_mask]
+            encoded_targets = box_coder.encode([matched_anchors], [matched_gt_boxes])[0]
+            reg_loss += F.smooth_l1_loss(reg_preds[i][matched_mask], encoded_targets)
+
+    cls_loss /= batch_size
+    reg_loss /= batch_size
+
+    return cls_loss + reg_loss
 
 class InceptionResidual(nn.Module):
 
@@ -94,7 +122,7 @@ class Prediction(nn.Module):
 
         return cls, reg
 
-class ALPR(nn.Module):
+class LPD(nn.Module):
 
     def __init__(self) -> None:
         super().__init__()
@@ -158,35 +186,41 @@ def main():
     parser.add_argument('--output-path', type=str, default='models/OCR_model.pth', help='Path to save the trained model (.pth)')
     args = parser.parse_args()
 
-    model = ALPR()
-    dummy = torch.rand((2, 3, 384, 384))
-    cls, reg, anch = model(dummy)
+    model = LPD()
+    matcher = Matcher(0.5, 0.3)
+    box_coder = BoxCoder((1., 1., 1., 1.))
+    optimizer = AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    num_epochs = 1
 
-    anchors = torch.tensor([[0, 0, 40, 20], [100, 100, 150, 150], [10, 10, 50, 30]], dtype=torch.float)
-    gt_boxes = torch.tensor([[0, 0, 8, 9], [12, 12 , 50, 25], [99, 100, 130, 146]], dtype=torch.float)
+    model.train()
+    total_cls_loss = 0.0
+    total_reg_loss = 0.0
 
-    iou = box_iou(anchors, gt_boxes)
-    matcher = Matcher(high_threshold=0.5, low_threshold=0.3, allow_low_quality_matches=False)
-    matches = matcher(iou)
+    for epoch in range(1, num_epochs+1):
+        print(f'Epoch {epoch}/{num_epochs}', end=' ')
+        for images, targets in dataloader:
 
-    matched_gt_boxes = gt_boxes[matches > -1]
-    matched_anchors = anchors[matches[matches > -1]]
+            # Targets del dataset
+            gt_boxes = [t["boxes"] for t in targets]  # each [num_gt,4]
+            gt_labels = [t["labels"] for t in targets]  # each [num_gt]
 
-    box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
-    encoded_boxes = []
+            # --------------------------------------------------------
+            # 1. Forward del modelo
+            # --------------------------------------------------------
+            cls_preds, reg_preds, anchors = model(images)
+            # cls_preds: [B, N, 2]
+            # reg_preds: [B, N, 4]
+            # anchors:   list len B, each [N,4]
 
-    an = [*matched_anchors.unsqueeze(0).unbind(1)]
-    print(an)
-    gt = [*matched_gt_boxes.unsqueeze(0).unbind(1)]
-    print(gt)
-    en = box_coder.encode(an, gt)
-    print(en)
-    en = torch.stack(en, dim=1)
-    print(en)
-    print(en.size())
+            loss = detection_loss(cls_preds, reg_preds, anchors, gt_boxes, matcher, box_coder)
 
-    de = box_coder.decode(en, gt)
-    print(de)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            print(f'loss: {loss.item()}')
+
 
 
 
