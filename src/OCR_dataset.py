@@ -80,7 +80,7 @@ class SyntheticPlateDataset(Dataset):
     Dataset that generates fake synthetic spanish license plates and augments them to simulate perspective.
     """
 
-    def __init__(self, num_samples: int = 10000):
+    def __init__(self, num_samples: int = 10000) -> None:
         super().__init__()
         self.num_samples = num_samples
         self.font_main = ImageFont.truetype('arial.ttf', 27)
@@ -91,7 +91,7 @@ class SyntheticPlateDataset(Dataset):
     def __len__(self) -> int:
         return self.num_samples
 
-    def __getitem__(self, idx: int) -> tuple:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         plate_text = generate_plate_text()
         plate = Image.new("L", (150, 32), color=230)
         draw = ImageDraw.Draw(plate)

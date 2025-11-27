@@ -25,10 +25,17 @@ import torch
 from torch import nn
 from torch.functional import F
 from torch.optim import AdamW
-from torchvision.ops import box_iou
+from torch.utils.data import DataLoader
+from torchvision.ops import box_iou, nms
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection._utils import Matcher, BoxCoder
+
+from LPD_dataset import CarPlateTrainDataset, CarPlateTestDataset
+
+
+
+
 
 def detection_loss(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors: list[torch.Tensor], gt_boxes: list[torch.Tensor], matcher: Matcher, box_coder: BoxCoder):
     batch_size = cls_preds.size(0)
@@ -37,7 +44,7 @@ def detection_loss(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors: li
 
     for i in range(batch_size):
         # Match anchors with GT
-        iou_matrix = box_iou(anchors[i], gt_boxes[i])
+        iou_matrix = box_iou(gt_boxes[i], anchors[i])
         matched_idxs = matcher(iou_matrix)
         matched_mask = matched_idxs >= 0
 
@@ -57,6 +64,13 @@ def detection_loss(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors: li
     reg_loss /= batch_size
 
     return cls_loss + reg_loss
+
+def collate_fn(batch: list) -> tuple[torch.Tensor, list[torch.Tensor]]:
+    imgs, labels = zip(*batch)
+    imgs = torch.stack(imgs)
+    labels = list(labels)
+    return imgs, labels
+
 
 class InceptionResidual(nn.Module):
 
@@ -175,35 +189,31 @@ class LPD(nn.Module):
         return cls, reg, anchors
 
 
-
-
 def main():
 
     parser = argparse.ArgumentParser(description='OCR_model training')
-    parser.add_argument('total', metavar='N', type=int, nargs='?', default=10000, help='Number of train images in the dataset')
     parser.add_argument('--model-path', type=str, default=None, help='Trained model path (.pth) for loading')
     parser.add_argument('--epochs', type=int, default=1, help='Number of epochs during the training')
     parser.add_argument('--output-path', type=str, default='models/OCR_model.pth', help='Path to save the trained model (.pth)')
     args = parser.parse_args()
 
     model = LPD()
+
+    train_dataset = CarPlateTrainDataset('dataset/')
+    test_dataset = CarPlateTestDataset('dataset/')
+    train_loader = DataLoader(train_dataset, batch_size=64, collate_fn=collate_fn)
+    test_loader = DataLoader(test_dataset, batch_size=64, collate_fn=collate_fn)
+
     matcher = Matcher(0.5, 0.3)
     box_coder = BoxCoder((1., 1., 1., 1.))
     optimizer = AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    num_epochs = 1
+    num_epochs = 3
 
     model.train()
-    total_cls_loss = 0.0
-    total_reg_loss = 0.0
-
     for epoch in range(1, num_epochs+1):
         print(f'Epoch {epoch}/{num_epochs}', end=' ')
-        for images, targets in dataloader:
-
-            # Targets del dataset
-            gt_boxes = [t["boxes"] for t in targets]  # each [num_gt,4]
-            gt_labels = [t["labels"] for t in targets]  # each [num_gt]
+        for images, targets in train_loader:
 
             # --------------------------------------------------------
             # 1. Forward del modelo
@@ -213,13 +223,52 @@ def main():
             # reg_preds: [B, N, 4]
             # anchors:   list len B, each [N,4]
 
-            loss = detection_loss(cls_preds, reg_preds, anchors, gt_boxes, matcher, box_coder)
+            loss = detection_loss(cls_preds, reg_preds, anchors, targets, matcher, box_coder)
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step()
             print(f'loss: {loss.item()}')
+
+    """recall = evaluate_recall(model, test_loader, box_coder)
+    print("Recall:", recall)
+    print(f"Accuracy of detection = {recall * 100:.2f}%")
+
+
+    model.eval()
+    with torch.no_grad():
+        for images, targets in test_loader:
+
+            cls_preds, reg_preds, anchors = model(images)
+
+            batch_size = images.size(0)
+            for i in range(batch_size):
+
+                scores = cls_preds[i].sigmoid().squeeze()
+
+
+                score_thresh = 0.5
+                mask = scores > score_thresh
+
+                if mask.sum() == 0:
+                    print("No detections for this image.")
+                    continue
+
+
+                pred_boxes = box_coder.decode(anchors[i][mask], reg_preds[i][mask])
+
+
+                keep = nms(pred_boxes, scores[mask], iou_threshold=0.5)
+
+                final_boxes = pred_boxes[keep]
+                final_scores = scores[mask][keep]
+
+                print("GT BOXES: ", targets[i])
+                print("PRED BOXES: ", final_boxes)
+                print("PRED SCORES:", final_scores)"""
+
+
 
 
 
