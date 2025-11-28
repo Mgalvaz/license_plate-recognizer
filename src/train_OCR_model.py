@@ -193,7 +193,7 @@ def main():
 
     if args.output_path:
         torch.save({
-            'epoch': epoch,
+            'epoch': args.epochs + last_epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss.item(),
