@@ -48,6 +48,24 @@ def detection_loss_3v1(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors
         labels = torch.zeros(cls_preds[i].size(0), dtype=torch.long, device=cls_preds.device)
         labels[matched_mask] = 1
 
+        max_iou_per_anchor, _ = iou_matrix.max(dim=0)
+        print("Max IoU anchors:", (max_iou_per_anchor > 0.5).sum().item())
+        print("Max IoU > 0.3:", (max_iou_per_anchor > 0.3).sum().item())
+        print("Max IoU (max):", max_iou_per_anchor.max().item())
+        aw = anchors[i][:, 2] - anchors[i][:, 0]
+        ah = anchors[i][:, 3] - anchors[i][:, 1]
+        print(anchors[i][20:40])
+        print("Anchor width mean:", aw.mean().item())
+        print("Anchor height mean:", ah.mean().item())
+        aw = gt_boxes[i][:, 2] - gt_boxes[i][:, 0]
+        ah = gt_boxes[i][:, 3] - gt_boxes[i][:, 1]
+        print("GT box:", gt_boxes[i])
+        print("GT width mean:", aw.mean().item())
+        print("GT height mean:", ah.mean().item())
+        print("Cls logits mean:", cls_preds.mean().item())
+        print("Cls logits std:", cls_preds.std().item())
+
+
         # Hard negative mining
         num_pos = matched_mask.sum().item()
         if num_pos > 0:
@@ -79,9 +97,6 @@ def detection_loss_3v1(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors
             encoded_targets = box_coder.encode([matched_anchors], [matched_gt_boxes])[0]
             reg_loss += F.smooth_l1_loss(reg_preds[i][matched_mask], encoded_targets)
 
-    cls_loss /= batch_size
-    reg_loss /= batch_size
-
     return cls_loss + reg_loss
 
 
@@ -97,6 +112,24 @@ def detection_loss(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors: li
         matched_idxs = matcher(iou_matrix)
         matched_mask = matched_idxs >= 0
 
+        max_iou_per_anchor, _ = iou_matrix.max(dim=0)
+        print("Max IoU anchors:", (max_iou_per_anchor > 0.5).sum().item())
+        print("Max IoU > 0.3:", (max_iou_per_anchor > 0.3).sum().item())
+        print("Max IoU (max):", max_iou_per_anchor.max().item())
+        aw = anchors[i][:, 2] - anchors[i][:, 0]
+        ah = anchors[i][:, 3] - anchors[i][:, 1]
+        print(anchors[i][10:20])
+        print("Anchor width mean:", aw.mean().item())
+        print("Anchor height mean:", ah.mean().item())
+        aw = gt_boxes[i][:, 2] - gt_boxes[i][:, 0]
+        ah = gt_boxes[i][:, 3] - gt_boxes[i][:, 1]
+        print(gt_boxes[i])
+        print("GT width mean:", aw.mean().item())
+        print("GT height mean:", ah.mean().item())
+        print("Cls logits mean:", cls_preds.mean().item())
+        print("Cls logits std:", cls_preds.std().item())
+
+
         # Classification loss
         labels = torch.zeros_like(cls_preds[i][:, 0], dtype=torch.long)
         labels[matched_mask] = 1
@@ -108,9 +141,6 @@ def detection_loss(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors: li
             matched_anchors = anchors[i][matched_mask]
             encoded_targets = box_coder.encode([matched_anchors], [matched_gt_boxes])[0]
             reg_loss += F.smooth_l1_loss(reg_preds[i][matched_mask], encoded_targets)
-
-    cls_loss /= batch_size
-    reg_loss /= batch_size
 
     return cls_loss + reg_loss
 
@@ -175,42 +205,28 @@ class InResBlock(nn.Module):
     def __init__(self, inc, outc):
         super().__init__()
 
-        # -----------------------------
-        # Branch 1: 1×1 → 3×3
-        # -----------------------------
         self.branch1 = nn.Sequential(
             nn.Conv2d(inc, outc, kernel_size=1, stride=1, padding=0),
             nn.ReLU()
         )
 
-        # -----------------------------
-        # Branch 2: 1×1 → 3×3
-        # -----------------------------
         self.branch2 = nn.Sequential(
-            nn.Conv2d(inc, outc, kernel_size=1, stride=1, padding=0),
+            nn.Conv2d(inc, outc, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(outc, outc, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(outc, outc, kernel_size=1, stride=1, padding=0),
             nn.ReLU()
         )
 
-        # -----------------------------
-        # Branch 3: 1×1 → 3×3 → 3×3
-        # -----------------------------
         self.branch3 = nn.Sequential(
-            nn.Conv2d(inc, outc, kernel_size=1, stride=1, padding=0),
+            nn.Conv2d(inc, outc, kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
             nn.Conv2d(outc, outc, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(outc, outc, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(outc, outc, kernel_size=1, stride=1, padding=0),
             nn.ReLU()
         )
 
-        # -----------------------------
-        # 1×1 para reducir canales tras el concat
-        # concat tiene 3×outc
-        # -----------------------------
         self.merge = nn.Conv2d(3 * outc, inc, kernel_size=1)
-
 
         # Activación final
         self.relu = nn.ReLU()
@@ -236,17 +252,17 @@ class InResBlock(nn.Module):
 
 class Prediction(nn.Module):
 
-    def __init__(self, inc: int) -> None:
+    def __init__(self, inc: int, num_anchors: int) -> None:
         super().__init__()
-        self.cls = nn.Conv2d(inc, 2, kernel_size=3, padding=1) # (32, 16, 16) -> (2, 16, 16) or (48, 8, 8) -> (2, 8, 8)
-        self.reg = nn.Conv2d(inc, 4, kernel_size=3, padding=1) # (32, 16, 16) -> (4, 16, 16) or (48, 8, 8) -> (4, 8, 8)
+        self.cls = nn.Conv2d(inc, 2 * num_anchors, kernel_size=3, padding=1) # (32, 16, 16) -> (2*num_anchors, 16, 16) or (48, 8, 8) -> (2*num_anchors, 8, 8)
+        self.reg = nn.Conv2d(inc, 4 * num_anchors, kernel_size=3, padding=1) # (32, 16, 16) -> (4*num_anchors, 16, 16) or (48, 8, 8) -> (4*num_anchors, 8, 8)
 
     def forward(self, x:torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         cls = self.cls(x)
         reg = self.reg(x)
 
-        cls = cls.permute(0, 2, 3, 1).reshape(cls.size(0), -1, 2) # (2, 16, 16) -> (256, 2) or (2, 8, 8) -> (64, 2)
-        reg = reg.permute(0, 2, 3, 1).reshape(reg.size(0), -1, 4) # (4, 16, 16) -> (256, 4) or (4, 8, 8) -> (64, 4)
+        cls = cls.permute(0, 2, 3, 1).reshape(cls.size(0), -1, 2) # (2*num_anchors, 16, 16) -> (256*num_anchors, 2) or (2*num_anchors, 8, 8) -> (64*num_anchors, 2)
+        reg = reg.permute(0, 2, 3, 1).reshape(reg.size(0), -1, 4) # (4*num_anchors, 16, 16) -> (256*num_anchors, 4) or (4*num_anchors, 8, 8) -> (64*num_anchors, 4)
 
         return cls, reg
 
@@ -258,33 +274,50 @@ class LPD(nn.Module):
         self.block1 = nn.Sequential(
             nn.Conv2d(3, 16, 5, stride=3, padding=2), # (3, 384, 384) -> (16, 128, 128)
             nn.ReLU(),
-            InResBlock(16, 16), #(16, 128, 128) -> (16, 128, 128)
+            InResBlock(16, 16) #(16, 128, 128) -> (16, 128, 128)
+            #InceptionResidual(16, 16, 5, 3, 3, include_max_pool=True)
         )
         self.block2 = nn.Sequential(
             nn.Conv2d(16, 24, 3, stride=2, padding=1),  # (16, 128, 128) -> (24, 64, 64)
             nn.ReLU(),
-            InResBlock(24, 24), # (24, 64, 64) -> (24, 64, 64)
+            InResBlock(24, 24) # (24, 64, 64) -> (24, 64, 64)
+            #InceptionResidual(24, 24, 5, 3, 3, include_max_pool=True)
         )
         self.block3 = nn.Sequential(
-            nn.Conv2d(24, 32, 3, stride=2, padding=1),  # (24, 128, 128) -> (32, 32, 32)
+            nn.Conv2d(24, 24, 3, stride=2, padding=1),  # (16, 128, 128) -> (24, 64, 64)
             nn.ReLU(),
-            InResBlock(32, 32) , # (32, 32, 32) -> (32, 32, 32)
+            InResBlock(24, 24)  # (24, 64, 64) -> (24, 64, 64)
+            # InceptionResidual(24, 24, 5, 3, 3, include_max_pool=True)
         )
         self.block4 = nn.Sequential(
-            nn.Conv2d(32, 32, 3, stride=2, padding=1),  # (32, 32, 32) -> (32, 16, 16)
+            nn.Conv2d(24, 32, 3, stride=2, padding=1),  # (16, 128, 128) -> (24, 64, 64)
             nn.ReLU(),
-            InResBlock(32, 32),  # (32, 16, 16) -> (32, 16, 16)
+            InResBlock(32, 32)  # (24, 64, 64) -> (24, 64, 64)
+            # InceptionResidual(24, 24, 5, 3, 3, include_max_pool=True)
         )
         self.block5 = nn.Sequential(
-            nn.Conv2d(32, 48, 3, stride=2, padding=1),  # (32, 16, 16) -> (48, 8, 8)
+            nn.Conv2d(32, 32, 3, stride=2, padding=1),  # (24, 128, 128) -> (32, 32, 32)
             nn.ReLU(),
-            InResBlock(48, 48)  # (48, 8, 8) -> (48, 8, 8)
+            InResBlock(32, 32) # (32, 32, 32) -> (32, 32, 32)
+            #InceptionResidual(32, 32, 5, 3, 3, include_max_pool=True)
+        )
+        self.block6 = nn.Sequential(
+            nn.Conv2d(32, 48, 3, stride=2, padding=1),  # (32, 32, 32) -> (32, 16, 16)
+            nn.ReLU(),
+            InResBlock(48, 48) # (32, 16, 16) -> (32, 16, 16)
+            #InceptionResidual(32, 32, 5, 3, 3, include_max_pool=True)
+        )
+        self.block7 = nn.Sequential(
+            nn.Conv2d(48, 56, 3, stride=2, padding=1),  # (32, 16, 16) -> (48, 8, 8)
+            nn.ReLU(),
+            InResBlock(56, 56)  # (48, 8, 8) -> (48, 8, 8)
+            #InceptionResidual(48, 48, 5, 3, 3, include_max_pool=True)
         )
 
-        self.FM0 = Prediction(32) #(32, 16, 16) -> ((2, 16, 16) # matricula/no matricula, (4, 16, 16) # (dx, dy, dw, dh))
-        self.FM1 = Prediction(48) #(48, 8, 8) -> ((2, 8, 8)# matricula/no matricula, (4, 8, 8) # (dx, dy, dw, dh))
+        self.FM0 = Prediction(48, num_anchors=3) #(32, 16, 16) -> ((2*num_anchors, 16, 16) # LP/no LP, or (4*num_anchors, 16, 16) # (minx, miny, maxx, maxy))
+        self.FM1 = Prediction(56, num_anchors=3) #(48, 8, 8) -> ((2*num_anchors, 8, 8)# LP/no LP, or (4*num_anchors, 8, 8) # (minx, miny, maxx, maxy))
 
-        self.anchors = AnchorGenerator(sizes=((39.6,), (79.2,)), aspect_ratios=((2.0,), (2.0,))
+        self.anchors = AnchorGenerator(sizes=((30,), (60,)), aspect_ratios=((1.0, 0.5, 0.25), (1.0, 0.5, 0.25))
     )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, list[torch.Tensor]]:
@@ -293,8 +326,10 @@ class LPD(nn.Module):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
-        fm0 = self.block4(x)
-        fm1 = self.block5(fm0)
+        x = self.block4(x)
+        x = self.block5(x)
+        fm0 = self.block6(x)
+        fm1 = self.block7(fm0)
 
         image_list = ImageList(images, [(height, width)] * batch)
         anchors = self.anchors(image_list, [fm0, fm1])
@@ -319,9 +354,9 @@ def main():
     # Model loading
     device = torch.device('cpu')
     model = LPD()
-    matcher = Matcher(0.5, 0.3)
+    matcher = Matcher(0.55, 0.3, allow_low_quality_matches=True)
     box_coder = BoxCoder((1., 1., 1., 1.))
-    optimizer = AdamW(model.parameters(), lr=0.0001, weight_decay=1e-5)
+    optimizer = AdamW(model.parameters(), lr=0.0002, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
     if args.model_path:
