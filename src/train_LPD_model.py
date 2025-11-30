@@ -52,7 +52,8 @@ def detection_loss_3v1(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors
         print("Max IoU anchors:", (max_iou_per_anchor > 0.5).sum().item())
         print("Max IoU > 0.3:", (max_iou_per_anchor > 0.3).sum().item())
         print("Max IoU (max):", max_iou_per_anchor.max().item())
-        aw = anchors[i][:, 2] - anchors[i][:, 0]
+
+        """aw = anchors[i][:, 2] - anchors[i][:, 0]
         ah = anchors[i][:, 3] - anchors[i][:, 1]
         print(anchors[i][20:40])
         print("Anchor width mean:", aw.mean().item())
@@ -63,7 +64,7 @@ def detection_loss_3v1(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors
         print("GT width mean:", aw.mean().item())
         print("GT height mean:", ah.mean().item())
         print("Cls logits mean:", cls_preds.mean().item())
-        print("Cls logits std:", cls_preds.std().item())
+        print("Cls logits std:", cls_preds.std().item())"""
 
 
         # Hard negative mining
@@ -116,7 +117,8 @@ def detection_loss(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors: li
         print("Max IoU anchors:", (max_iou_per_anchor > 0.5).sum().item())
         print("Max IoU > 0.3:", (max_iou_per_anchor > 0.3).sum().item())
         print("Max IoU (max):", max_iou_per_anchor.max().item())
-        aw = anchors[i][:, 2] - anchors[i][:, 0]
+
+        """aw = anchors[i][:, 2] - anchors[i][:, 0]
         ah = anchors[i][:, 3] - anchors[i][:, 1]
         print(anchors[i][10:20])
         print("Anchor width mean:", aw.mean().item())
@@ -127,7 +129,7 @@ def detection_loss(cls_preds: torch.Tensor, reg_preds: torch.Tensor, anchors: li
         print("GT width mean:", aw.mean().item())
         print("GT height mean:", ah.mean().item())
         print("Cls logits mean:", cls_preds.mean().item())
-        print("Cls logits std:", cls_preds.std().item())
+        print("Cls logits std:", cls_preds.std().item())"""
 
 
         # Classification loss
@@ -272,53 +274,47 @@ class LPD(nn.Module):
         super().__init__()
 
         self.block1 = nn.Sequential(
-            nn.Conv2d(3, 16, 5, stride=3, padding=2), # (3, 384, 384) -> (16, 128, 128)
+            nn.Conv2d(3, 16, 5, padding=2), # (3, 384, 384) -> (16, 128, 128)
             nn.ReLU(),
             InResBlock(16, 16) #(16, 128, 128) -> (16, 128, 128)
             #InceptionResidual(16, 16, 5, 3, 3, include_max_pool=True)
         )
         self.block2 = nn.Sequential(
-            nn.Conv2d(16, 24, 3, stride=2, padding=1),  # (16, 128, 128) -> (24, 64, 64)
+            nn.Conv2d(16, 24, 3, padding=1),  # (16, 128, 128) -> (24, 64, 64)
             nn.ReLU(),
             InResBlock(24, 24) # (24, 64, 64) -> (24, 64, 64)
             #InceptionResidual(24, 24, 5, 3, 3, include_max_pool=True)
         )
         self.block3 = nn.Sequential(
-            nn.Conv2d(24, 24, 3, stride=2, padding=1),  # (16, 128, 128) -> (24, 64, 64)
-            nn.ReLU(),
-            InResBlock(24, 24)  # (24, 64, 64) -> (24, 64, 64)
-            # InceptionResidual(24, 24, 5, 3, 3, include_max_pool=True)
-        )
-        self.block4 = nn.Sequential(
             nn.Conv2d(24, 32, 3, stride=2, padding=1),  # (16, 128, 128) -> (24, 64, 64)
             nn.ReLU(),
             InResBlock(32, 32)  # (24, 64, 64) -> (24, 64, 64)
             # InceptionResidual(24, 24, 5, 3, 3, include_max_pool=True)
         )
-        self.block5 = nn.Sequential(
+        self.block4 = nn.Sequential(
             nn.Conv2d(32, 32, 3, stride=2, padding=1),  # (24, 128, 128) -> (32, 32, 32)
             nn.ReLU(),
             InResBlock(32, 32) # (32, 32, 32) -> (32, 32, 32)
             #InceptionResidual(32, 32, 5, 3, 3, include_max_pool=True)
         )
-        self.block6 = nn.Sequential(
+        self.block5 = nn.Sequential(
             nn.Conv2d(32, 48, 3, stride=2, padding=1),  # (32, 32, 32) -> (32, 16, 16)
             nn.ReLU(),
             InResBlock(48, 48) # (32, 16, 16) -> (32, 16, 16)
             #InceptionResidual(32, 32, 5, 3, 3, include_max_pool=True)
         )
-        self.block7 = nn.Sequential(
-            nn.Conv2d(48, 56, 3, stride=2, padding=1),  # (32, 16, 16) -> (48, 8, 8)
+        self.block6 = nn.Sequential(
+            nn.Conv2d(48, 48, 3, stride=2, padding=1),  # (32, 16, 16) -> (48, 8, 8)
             nn.ReLU(),
-            InResBlock(56, 56)  # (48, 8, 8) -> (48, 8, 8)
+            InResBlock(48, 48)  # (48, 8, 8) -> (48, 8, 8)
             #InceptionResidual(48, 48, 5, 3, 3, include_max_pool=True)
         )
 
-        self.FM0 = Prediction(48, num_anchors=3) #(32, 16, 16) -> ((2*num_anchors, 16, 16) # LP/no LP, or (4*num_anchors, 16, 16) # (minx, miny, maxx, maxy))
-        self.FM1 = Prediction(56, num_anchors=3) #(48, 8, 8) -> ((2*num_anchors, 8, 8)# LP/no LP, or (4*num_anchors, 8, 8) # (minx, miny, maxx, maxy))
+        self.FM0 = Prediction(32, num_anchors=15) #(32, 16, 16) -> ((2*num_anchors, 16, 16) # LP/no LP, or (4*num_anchors, 16, 16) # (minx, miny, maxx, maxy))
+        self.FM1 = Prediction(48, num_anchors=15) #(48, 8, 8) -> ((2*num_anchors, 8, 8)# LP/no LP, or (4*num_anchors, 8, 8) # (minx, miny, maxx, maxy))
+        self.FM2 = Prediction(48, num_anchors=5)  # (48, 8, 8) -> ((2*num_anchors, 8, 8)# LP/no LP, or (4*num_anchors, 8, 8) # (minx, miny, maxx, maxy))
 
-        self.anchors = AnchorGenerator(sizes=((30,), (60,)), aspect_ratios=((1.0, 0.5, 0.25), (1.0, 0.5, 0.25))
-    )
+        self.anchors = AnchorGenerator(sizes=((25, 32, 40), (55, 64, 70), (128,)), aspect_ratios=((0.25, 0.33, 0.5, 0.66, 1.0),) * 3)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, list[torch.Tensor]]:
         images = x
@@ -326,19 +322,19 @@ class LPD(nn.Module):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
-        x = self.block4(x)
-        x = self.block5(x)
-        fm0 = self.block6(x)
-        fm1 = self.block7(fm0)
+        fm0 = self.block4(x)
+        fm1 = self.block5(fm0)
+        fm2 = self.block6(fm1)
 
         image_list = ImageList(images, [(height, width)] * batch)
-        anchors = self.anchors(image_list, [fm0, fm1])
+        anchors = self.anchors(image_list, [fm0, fm1, fm2])
 
         cls0, reg0 = self.FM0(fm0)
         cls1, reg1 = self.FM1(fm1)
+        cls2, reg2 = self.FM2(fm2)
 
-        cls = torch.cat([cls0, cls1], dim=1)
-        reg = torch.cat([reg0, reg1], dim=1)
+        cls = torch.cat([cls0, cls1, cls2], dim=1)
+        reg = torch.cat([reg0, reg1, reg2], dim=1)
 
         return cls, reg, anchors
 
@@ -356,7 +352,7 @@ def main():
     model = LPD()
     matcher = Matcher(0.55, 0.3, allow_low_quality_matches=True)
     box_coder = BoxCoder((1., 1., 1., 1.))
-    optimizer = AdamW(model.parameters(), lr=0.0002, weight_decay=1e-5)
+    optimizer = AdamW(model.parameters(), lr=0.0005, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
     if args.model_path:
@@ -371,7 +367,7 @@ def main():
     else:
         last_epoch = 0
 
-    train_dataset = CarPlateTrainDataset('dataset/')
+    train_dataset = CarPlateTrainDataset('dataset/', compact=True)
     test_dataset = CarPlateTestDataset('dataset/')
     train_loader = DataLoader(train_dataset, batch_size=64, collate_fn=collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=64, collate_fn=collate_fn)
@@ -385,6 +381,8 @@ def main():
             optimizer.zero_grad()
 
             cls_preds, reg_preds, anchors = model(images)
+
+
             loss = detection_loss_3v1(cls_preds, reg_preds, anchors, targets, matcher, box_coder)
 
             loss.backward()

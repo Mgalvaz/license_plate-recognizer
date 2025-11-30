@@ -4,47 +4,59 @@ from torch.utils.data import Dataset
 from torchvision.transforms import v2
 from torchvision.utils import draw_bounding_boxes
 from PIL import Image
+import matplotlib.pyplot as plt
 
 def transform_img(image: Image.Image) -> torch.Tensor:
     tr = v2.Compose([
         v2.PILToTensor(),
-        v2.Resize((1536, 1536)),
+        v2.Resize((768, 768)),
         v2.ToDtype(torch.float, True),
     ])
     return tr(image)
 
 class CarPlateTrainDataset(Dataset):
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, compact: bool =False) -> None:
         super().__init__()
-        self.path = path + 'train/'
-        self.train = []
-        with open(path+'train.txt', 'r') as f:
-            self.train = [x.rstrip('\n') for x in f]
+        self.compact = compact
+        if compact:
+            self.images = torch.load(path + 'images.train.pt', weights_only=True)
+            self.labels = torch.load(path + 'labels.train.pt', weights_only=True)
+        else:
+            self.path = path + 'train/'
+            self.train = []
+            with open(path + 'train.txt', 'r') as f:
+                self.train = [x.rstrip('\n') for x in f]
 
     def __len__(self) -> int:
-        return len(self.train)
+        if self.compact:
+            return self.images.size(0)
+        else:
+            return len(self.train)
 
     def __getitem__(self, item: int) -> tuple[torch.Tensor, torch.Tensor]:
-        image_path = self.path + self.train[item] + '.jpg'
-        label_path = self.path + self.train[item] + '.json'
-        image = Image.open(image_path)
-        w, h = image.size
-        scale_x = 1536 / w
-        scale_y = 1536 / h
-        image = transform_img(image)
-        with open(label_path) as f:
-            full_label = json.load(f)
-        labels = []
-        for lbl in full_label['lps']:
-            lp = torch.Tensor(lbl['poly_coord'])
-            x_min = lp[:, 0].min() * scale_x
-            y_min = lp[:, 1].min() * scale_y
-            x_max = lp[:, 0].max() * scale_x
-            y_max = lp[:, 1].max() * scale_y
-            labels.append(torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32))
-        labels = torch.stack(labels)
-        return image, labels
+        if self.compact:
+            return self.images[item], self.labels[item]
+        else:
+            image_path = self.path + self.train[item] + '.jpg'
+            label_path = self.path + self.train[item] + '.json'
+            image = Image.open(image_path)
+            w, h = image.size
+            scale_x = 768 / w
+            scale_y = 768 / h
+            image = transform_img(image)
+            with open(label_path) as f:
+                full_label = json.load(f)
+            labels = []
+            for lbl in full_label['lps']:
+                lp = torch.Tensor(lbl['poly_coord'])
+                x_min = lp[:, 0].min() * scale_x
+                y_min = lp[:, 1].min() * scale_y
+                x_max = lp[:, 0].max() * scale_x
+                y_max = lp[:, 1].max() * scale_y
+                labels.append(torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32))
+            labels = torch.stack(labels)
+            return image, labels
 
 class CarPlateTestDataset(Dataset):
 
@@ -63,8 +75,8 @@ class CarPlateTestDataset(Dataset):
         label_path = self.path + self.test[item] + '.json'
         image = Image.open(image_path)
         w, h = image.size
-        scale_x = 1536 / w
-        scale_y = 1536 / h
+        scale_x = 768 / w
+        scale_y = 768 / h
         image = transform_img(image)
         with open(label_path) as f:
             full_label = json.load(f)
@@ -79,28 +91,52 @@ class CarPlateTestDataset(Dataset):
         labels = torch.stack(labels)
         return image, labels
 
-if __name__ == '__main__':
-    dataset = CarPlateTrainDataset('dataset/')
-    """minx = 100000
-    miny = 100000
-    minw = 100000
-    minh = 100000
-    maxw = 0
-    maxh = 0
+def main():
+    dataset = CarPlateTrainDataset('dataset/', compact=True)
+    images = []
+    lbls = []
+    gt_widths = []
+    gt_heights = []
+
     for img, label in dataset:
-        x = img.size(1)
-        y = img.size(2)
-        w = float((label[:,2] - label[:,0]).min())
-        h = float((label[:,3] - label[:,1]).min())
-        if w < minw: minw = w
-        if h < minh: minh = h
-        w = float((label[:, 2] - label[:, 0]).max())
-        h = float((label[:, 3] - label[:, 1]).max())
-        if w > maxw: maxw = w
-        if h > maxh: maxh = h
-        if x < minx: minx = x
-        if y < miny: miny = y"""
-    img, label = dataset[26]
-    print(label)
-    img = draw_bounding_boxes(img, label, fill=True, colors=['yellow']*label.size(0))
-    v2.ToPILImage()(img).show()
+        images.append(img)
+        lbls.append(label)
+
+        ws = label[:, 2] - label[:, 0]
+        hs = label[:, 3] - label[:, 1]
+        for width in ws:
+            gt_widths.append(width)
+        for height in hs:
+            gt_heights.append(height)
+
+    images = torch.stack(images)
+    torch.save(images, 'dataset/images.train.pt')
+    torch.save(lbls, 'dataset/labels.train.pt')
+
+    plt.figure()
+    plt.scatter(gt_widths, gt_heights, alpha=0.4)
+    plt.xlabel("GT width")
+    plt.ylabel("GT height")
+    plt.title("GT Height vs Width")
+    plt.grid(True)
+    plt.show()
+
+    plt.figure()
+    plt.hist(gt_widths, bins=30)
+    plt.xlabel("GT width")
+    plt.ylabel("count")
+    plt.title("Histograma de GT width")
+    plt.grid(True)
+    plt.show()
+
+    plt.figure()
+    plt.hist(gt_heights, bins=30)
+    plt.xlabel("GT height")
+    plt.ylabel("count")
+    plt.title("Histograma de GT height")
+    plt.grid(True)
+    plt.show()
+
+
+if __name__ == '__main__':
+    main()
