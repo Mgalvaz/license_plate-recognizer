@@ -153,56 +153,6 @@ def collate_fn(batch: list) -> tuple[torch.Tensor, list[torch.Tensor]]:
     return imgs, labels
 
 
-class InceptionResidual(nn.Module):
-
-    def __init__(self, inc: int, outc: int, *args: tuple[int, int] | int, include_max_pool: bool =True) -> None:
-        super().__init__()
-
-        # Inception module
-        num_branches = len(args) + (1 if include_max_pool else 0)
-        outc_hidden = outc//num_branches
-        self.inception = nn.ModuleList()
-        for kernel in args:
-            if isinstance(kernel, int):
-                pad = kernel // 2
-            else:
-                pad = (kernel[0] // 2, kernel[1] // 2)
-            self.inception.append(
-                nn.Sequential(
-                    nn.Conv2d(inc, outc_hidden, kernel, padding=pad),
-                    nn.BatchNorm2d(outc_hidden),
-                    nn.ReLU()
-                )
-            )
-        if include_max_pool:
-            self.inception.append(nn.Sequential(
-                nn.MaxPool2d(3, 1, padding=1),
-                nn.Conv2d(inc, outc_hidden, 1),
-                nn.BatchNorm2d(outc_hidden),
-                nn.ReLU()
-            ))
-        # Conv2D for the inception module
-        self.final_conv =  nn.Conv2d(outc, outc, 1, bias=False)
-        # Decoder
-        self.decoder = nn.ReLU()
-
-        # Residual module
-        if inc == outc:
-            self.residual = nn.Identity()
-        else:
-            self.residual = nn.Conv2d(inc, outc, 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out = [module(x) for module in self.inception]
-        out = torch.cat(out, dim=1)
-
-        out = self.final_conv(out) + self.residual(x)
-
-        out = self.decoder(out)
-        return out
-
-
-
 class InResBlock(nn.Module):
     def __init__(self, inc, outc):
         super().__init__()
