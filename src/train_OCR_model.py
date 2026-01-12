@@ -83,7 +83,8 @@ class CRNN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _, ic, ih, iw = x.size() # (batch, channels=1, height=32, width=150)
-        assert (ic, ih, iw) == (1, 32, 150), f'Input size ({ic}, {ih}, {iw}) does not correspond to expected size (1, 32, 150)'
+        if (ic, ih, iw) != (1, 32, 150):
+            raise ValueError(f'Input size ({ic}, {ih}, {iw}) does not correspond to expected size (1, 32, 150)')
         x = self.cnn(x) # (batch, channels=512, height=1, width=34)
 
         x = x.squeeze(2).permute(0, 2, 1)  # (batch, width=34, channels=512)
