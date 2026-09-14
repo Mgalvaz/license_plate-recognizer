@@ -8,15 +8,14 @@ from typing_extensions import deprecated
 
 
 def generate_plate_text() -> str:
-    nums = ''.join(random.choices('0123456789', k=4))
-
-    consonants = "BCDFGHJKLMNPQRSTVWXYZ"
-    vowels = "AEIOU"
+    consonants = 'BCDFGHJKLMNPQRSTVWXYZ'
+    vowels = 'AEIOU'
     alphabet = consonants + vowels
+
+    nums = ''.join(random.choices('0123456789', k=4))
     weights = [10] * len(consonants) + [1] * len(vowels)
     letters = ''.join(random.choices(alphabet, weights=weights, k=3))
-
-    return f"{nums} {letters}"
+    return f'{nums} {letters}'
 
 
 def add_gaussian_noise(img: Image, mean: int = 0, std: int = 8) -> Image:
@@ -91,7 +90,7 @@ class SyntheticPlateDataset(Dataset):
     def __len__(self) -> int:
         return self.num_samples
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         plate_text = generate_plate_text()
         plate = Image.new("L", (150, 32), color=230)
         draw = ImageDraw.Draw(plate)

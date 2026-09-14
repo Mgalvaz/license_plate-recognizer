@@ -35,12 +35,23 @@ REVERSE_TRANSLATOR = dict((n, l) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWX
 NUM_CLASSES = len(TRANSLATOR) + 1
 
 def collate_fn(batch: list) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Divides the batch into two, one of images and another of labels.
+    :param batch: The batch made of tuples of images and labels.
+    :return: Two separate batches, one for each image and one for each label.
+    """
     imgs, labels = zip(*batch)
     imgs = torch.stack(imgs)
     labels = pad_sequence(labels, batch_first=True, padding_value=-1)
     return imgs, labels
 
 def ctc_decode(pred_seq: torch.Tensor, blank: int=0) -> list[int]:
+    """
+    Removes blank spaces and duplicates predicted by the model.
+    :param pred_seq: The sequence predicted by the model.
+    :param blank: How is the blank space represented by the model.
+    :return: The decoded sequence.
+    """
     decoded = []
     prev = None
     for p in pred_seq:
@@ -172,7 +183,7 @@ def main():
             print(f"Exact match accuracy: {correct / num_test:.2%}")
 
 
-    input('Predecir la imagen')
+    input('Predict Image')
     transform = transforms.Compose([
         v2.Grayscale(num_output_channels=1),
         v2.Resize((32, 150)),
@@ -185,12 +196,11 @@ def main():
         ten = transform(image)
         v2.ToPILImage()(ten.squeeze(0)).show()
         ten = ten.unsqueeze(0)
-        input('siguiente')
+        input('next')
         out = model(ten)
         pred = out.argmax(dim=2).cpu().numpy().T
         decoded_preds = ctc_decode(pred)
         print([REVERSE_TRANSLATOR[n[0]] for n in decoded_preds])
-
 
     if args.output_path:
         torch.save({
