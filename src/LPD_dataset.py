@@ -2,7 +2,6 @@ import json
 import torch
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
-from torchvision.utils import draw_bounding_boxes
 from PIL import Image
 import matplotlib.pyplot as plt
 
@@ -34,12 +33,12 @@ class CarPlateTrainDataset(Dataset):
         else:
             return len(self.train)
 
-    def __getitem__(self, item: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         if self.compact:
-            return self.images[item], self.labels[item]
+            return self.images[index], self.labels[index]
         else:
-            image_path = self.path + self.train[item] + '.jpg'
-            label_path = self.path + self.train[item] + '.json'
+            image_path = self.path + self.train[index] + '.jpg'
+            label_path = self.path + self.train[index] + '.json'
             image = Image.open(image_path)
             w, h = image.size
             scale_x = 768 / w
@@ -70,9 +69,9 @@ class CarPlateTestDataset(Dataset):
     def __len__(self) -> int:
         return len(self.test)
 
-    def __getitem__(self, item: int) -> tuple[torch.Tensor, torch.Tensor]:
-        image_path = self.path + self.test[item] + '.jpg'
-        label_path = self.path + self.test[item] + '.json'
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        image_path = self.path + self.test[index] + '.jpg'
+        label_path = self.path + self.test[index] + '.json'
         image = Image.open(image_path)
         w, h = image.size
         scale_x = 768 / w
@@ -125,7 +124,7 @@ def main():
     plt.hist(gt_widths, bins=30)
     plt.xlabel("GT width")
     plt.ylabel("count")
-    plt.title("Histograma de GT width")
+    plt.title("GT width Histogram")
     plt.grid(True)
     plt.show()
 
@@ -133,7 +132,7 @@ def main():
     plt.hist(gt_heights, bins=30)
     plt.xlabel("GT height")
     plt.ylabel("count")
-    plt.title("Histograma de GT height")
+    plt.title("GT height Histogram")
     plt.grid(True)
     plt.show()
 
