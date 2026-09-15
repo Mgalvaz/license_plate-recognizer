@@ -52,7 +52,7 @@ def main():
     # Model loading
     device = torch.device('cpu')
 
-    # Use pretrainded resnet as backbone with FPN to treat each return layer as an output
+    # Use pretrained resnet as backbone with FPN to treat each return layer as an output
     resnet = resnet50(weights="DEFAULT")
     return_layers = {
         "layer1": "0",
@@ -68,72 +68,60 @@ def main():
         sizes=((32,), (60,), (90,), (128,), (256,)),
         aspect_ratios=((0.33, 0.5, 1.0),) * 5
     )
-    rpn_head = RPNHead(in_channels=256, num_anchors=3)
-    rpn = RegionProposalNetwork(
-        anchor_generator=anchor_generator,
-        head=rpn_head,
-        fg_iou_thresh=0.7,
-        bg_iou_thresh=0.3,
-        batch_size_per_image=256,
-        positive_fraction=0.5,
-        pre_nms_top_n={
-            "training": 2000,
-            "testing": 1000
-        },
-        post_nms_top_n={
-            "training": 2000,
-            "testing": 1000
-        },
-        nms_thresh=0.7,
-        score_thresh=0.0
-    )
 
-
+    # ROI to extract feature maps out of each anchor proposal
     roi_pooler = MultiScaleRoIAlign(
         featmap_names=["0", "1", "2", "3"],
         output_size=7,
         sampling_ratio=2
     )
 
+    model = FasterRCNN(
+        backbone,
+        num_classes=2,
+        rpn_anchor_generator=anchor_generator,
+        box_roi_pool=roi_pooler
+    )
 
-    exit()
-    optimizer = AdamW(model.parameters(), lr=0.0005, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
 
     if args.model_path:
         print(f'Loading model from {args.model_path}')
         checkpoint = torch.load(args.model_path, weights_only=True, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         last_epoch = checkpoint['epoch']
         loss = checkpoint['loss']
         print(f'Checkpoint loaded. Last epoch: {last_epoch}, with loss: {loss}')
     else:
         last_epoch = 0
 
-    train_dataset = CarPlateTrainDataset('dataset/', compact=True)
-    test_dataset = CarPlateTestDataset('dataset/')
+    #train_dataset = CarPlateTrainDataset('dataset/', compact=True)
+    #test_dataset = CarPlateTestDataset('dataset/')
+    train_dataset = CarPlateTrainDataset(r'C:\Repositorio\license_plate-recognizer\dataset\\', compact=True)
     train_loader = DataLoader(train_dataset, batch_size=64, collate_fn=collate_fn)
-    test_loader = DataLoader(test_dataset, batch_size=64, collate_fn=collate_fn)
+    #test_loader = DataLoader(test_dataset, batch_size=64, collate_fn=collate_fn)
 
     # Train
     model.train()
     num_epochs = args.epochs + last_epoch
+    last_epoch = 0
+    num_epochs = 10
     for epoch in range(last_epoch+1, num_epochs+1):
         print(f'Epoch {epoch}/{num_epochs}', end=' ')
-        for images, targets in train_loader:
+        epoch_loss = 0.0
+        print(next(iter(train_loader)))
+        for images, targets in next(iter(train_loader)):
+            loss_dict = model(images, targets)
+            losses = sum(loss for loss in loss_dict.values())
             optimizer.zero_grad()
-
-            cls_preds, reg_preds, anchors = model(images)
-
-
-            loss = detection_loss_3v1(cls_preds, reg_preds, anchors, targets, matcher, box_coder)
-
-            loss.backward()
+            losses.backward()
             optimizer.step()
-            scheduler.step()
-            print(f'loss: {loss.item()}')
+            epoch_loss += losses.item()
+
+        print(f'loss: {epoch_loss:.4f}')
+    exit()
 
     # Test
     model.eval()
