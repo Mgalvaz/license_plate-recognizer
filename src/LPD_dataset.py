@@ -1,5 +1,6 @@
 import json
 import torch
+import numpy as np
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
 from PIL import Image
@@ -8,7 +9,6 @@ import matplotlib.pyplot as plt
 def transform_img(image: Image.Image) -> torch.Tensor:
     tr = v2.Compose([
         v2.PILToTensor(),
-        v2.Resize((768, 768)),
         v2.ToDtype(torch.float, True),
     ])
     return tr(image)
@@ -33,29 +33,34 @@ class CarPlateTrainDataset(Dataset):
         else:
             return len(self.train)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         if self.compact:
             return self.images[index], self.labels[index]
         else:
             image_path = self.path + self.train[index] + '.jpg'
             label_path = self.path + self.train[index] + '.json'
-            image = Image.open(image_path)
-            w, h = image.size
-            scale_x = 768 / w
-            scale_y = 768 / h
+            image = Image.open(image_path).convert('RGB')
             image = transform_img(image)
             with open(label_path) as f:
                 full_label = json.load(f)
-            labels = []
-            for lbl in full_label['lps']:
-                lp = torch.Tensor(lbl['poly_coord'])
-                x_min = lp[:, 0].min() * scale_x
-                y_min = lp[:, 1].min() * scale_y
-                x_max = lp[:, 0].max() * scale_x
-                y_max = lp[:, 1].max() * scale_y
-                labels.append(torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32))
-            labels = torch.stack(labels)
-            return image, labels
+            boxes = []
+
+            for lp in full_label['lps']:
+                poly = np.array(lp["poly_coord"])
+                xmin = poly[:, 0].min()
+                ymin = poly[:, 1].min()
+                xmax = poly[:, 0].max()
+                ymax = poly[:, 1].max()
+                boxes.append([xmin, ymin, xmax, ymax])
+
+            boxes = torch.tensor(boxes, dtype=torch.float32)
+            labels = torch.ones(len(boxes), dtype=torch.int64)
+            target = {
+                "boxes": boxes,
+                "labels": labels,
+                "image_id": torch.tensor([index])
+            }
+        return image, target
 
 class CarPlateTestDataset(Dataset):
 

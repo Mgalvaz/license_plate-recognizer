@@ -22,7 +22,6 @@ Output:
 
 import argparse
 import torch
-from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torchvision.ops import box_iou, nms
 from torchvision.models.detection.image_list import ImageList
@@ -30,7 +29,7 @@ from LPD_dataset import CarPlateTrainDataset, CarPlateTestDataset
 
 from torchvision.models.detection import FasterRCNN
 from torchvision.models.detection.backbone_utils import BackboneWithFPN
-from torchvision.models.detection.rpn import AnchorGenerator, RegionProposalNetwork, RPNHead
+from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models import resnet50
 
@@ -99,8 +98,8 @@ def main():
 
     #train_dataset = CarPlateTrainDataset('dataset/', compact=True)
     #test_dataset = CarPlateTestDataset('dataset/')
-    train_dataset = CarPlateTrainDataset(r'C:\Repositorio\license_plate-recognizer\dataset\\', compact=True)
-    train_loader = DataLoader(train_dataset, batch_size=64, collate_fn=collate_fn)
+    train_dataset = CarPlateTrainDataset(r'C:\Repositorio\license_plate-recognizer\dataset\\', compact=False)
+    train_loader = DataLoader(train_dataset, batch_size=10, collate_fn=collate_fn)
     #test_loader = DataLoader(test_dataset, batch_size=64, collate_fn=collate_fn)
 
     # Train
@@ -111,14 +110,27 @@ def main():
     for epoch in range(last_epoch+1, num_epochs+1):
         print(f'Epoch {epoch}/{num_epochs}', end=' ')
         epoch_loss = 0.0
-        print(next(iter(train_loader)))
-        for images, targets in next(iter(train_loader)):
-            loss_dict = model(images, targets)
-            losses = sum(loss for loss in loss_dict.values())
-            optimizer.zero_grad()
-            losses.backward()
-            optimizer.step()
-            epoch_loss += losses.item()
+        a = next(iter(train_loader))
+        images, targets = a
+        for target in targets:
+            boxes = target["boxes"]
+
+            print("xmin:", boxes[:, 0].min().item())
+            print("ymin:", boxes[:, 1].min().item())
+            print("xmax:", boxes[:, 2].max().item())
+            print("ymax:", boxes[:, 3].max().item())
+
+            print("¿NaN?:", torch.isnan(boxes).any().item())
+            print("¿Inf?:", torch.isinf(boxes).any().item())
+            print("¿xmin < xmax?:", (boxes[:, 0] < boxes[:, 2]).all().item())
+            print("¿ymin < ymax?:", (boxes[:, 1] < boxes[:, 3]).all().item())
+        #for images, targets in next(iter(train_loader)):
+        loss_dict = model(images, targets)
+        losses = sum(loss for loss in loss_dict.values())
+        optimizer.zero_grad()
+        losses.backward()
+        optimizer.step()
+        epoch_loss += losses.item()
 
         print(f'loss: {epoch_loss:.4f}')
     exit()
