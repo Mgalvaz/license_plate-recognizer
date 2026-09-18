@@ -17,6 +17,11 @@ def generate_plate_text() -> str:
     letters = ''.join(random.choices(alphabet, weights=weights, k=3))
     return f'{nums} {letters}'
 
+def generate_plate_text_v2() -> str:
+    chars = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    probs = [8] + [1]*36
+    return ''.join(random.choices(chars, weights=probs, k=8))
+
 
 def add_gaussian_noise(img: Image, mean: int = 0, std: int = 8) -> Image:
     arr = np.array(img).astype(np.float32)
@@ -91,12 +96,11 @@ class SyntheticPlateDataset(Dataset):
         return self.num_samples
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        plate_text = generate_plate_text()
+        plate_text = generate_plate_text_v2()
         plate = Image.new("L", (150, 32), color=230)
         draw = ImageDraw.Draw(plate)
-        draw.rectangle([3, 3, 15, 29], fill=134)
-        draw.text((7, 19), 'E', font=self.font_small, fill=230)
-        draw.text((20, 2), plate_text, font=self.font_main, fill=50)
+        start = random.randint(0, 20)
+        draw.text((start, 2), plate_text, font=self.font_main, fill=50)
         plate = self.transform(plate)
         label = torch.tensor([self.translator[l] for l in plate_text if l != ' '], dtype=torch.long)
         return plate, label
