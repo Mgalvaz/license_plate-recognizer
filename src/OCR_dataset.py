@@ -1,6 +1,6 @@
 import random
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import v2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
@@ -99,8 +99,26 @@ class SyntheticPlateDataset(Dataset):
         plate_text = generate_plate_text_v2()
         plate = Image.new("L", (150, 32), color=230)
         draw = ImageDraw.Draw(plate)
-        start = random.randint(0, 20)
+        start = random.randint(0, 10)
         draw.text((start, 2), plate_text, font=self.font_main, fill=50)
         plate = self.transform(plate)
         label = torch.tensor([self.translator[l] for l in plate_text if l != ' '], dtype=torch.long)
         return plate, label
+
+if __name__ == '__main__':
+    image = Image.open(r'C:\Repositorio\license_plate-recognizer\src\3245_LCX.png')
+    transform = v2.Compose([
+        v2.Grayscale(num_output_channels=1),
+        v2.Resize((32, 150)),
+        v2.PILToTensor(),
+        v2.ToDtype(torch.float, True),
+    ])
+    ten = transform(image)
+    v2.ToPILImage()(ten.squeeze(0)).show()
+    ten = ten.unsqueeze(0)
+    dataset = SyntheticPlateDataset(num_samples=1)
+    dataloader = DataLoader(dataset, batch_size=1)
+    inv_translator = dict((n, l) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', start=1))
+    for img, label in dataloader:
+        v2.ToPILImage()(img.squeeze(0)).show()
+        print([inv_translator[t.item()] for t in label[0]])
