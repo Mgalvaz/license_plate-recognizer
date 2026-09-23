@@ -66,24 +66,24 @@ class CRNN(nn.Module):
         super(CRNN, self).__init__()
 
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 64, (3, 3), padding=1),  # (1, 32, 150) -> (32, 32, 150)
+            nn.Conv2d(1, 64, (3, 3), padding=1),  # (1, 32, 150) -> (64, 32, 150)
             nn.ReLU(),
-            nn.MaxPool2d(2, 2), # (32, 32, 150) -> (32, 16, 75)
-            nn.Conv2d(64, 128, (3, 3), padding=1),  # (32, 16, 75) -> (64, 16, 75)
+            nn.MaxPool2d(2, 2), # (64, 32, 150) -> (64, 16, 75)
+            nn.Conv2d(64, 128, (3, 3), padding=1),  # (64, 16, 75) -> (128, 16, 75)
             nn.ReLU(),
             nn.MaxPool2d(2, 2),  # (64, 16, 75) -> (64, 8, 37)
-            nn.Conv2d(128, 256, (3, 3), padding=1),  # (64, 8, 37) -> (128, 8, 37)
+            nn.Conv2d(128, 256, (3, 3), padding=1),  # (128, 8, 37) -> (256, 8, 37)
             nn.ReLU(),
             nn.MaxPool2d((1, 2), (2,1)),  # (128, 8, 37) -> (128, 4, 36)
-            nn.Conv2d(256, 512, (3, 3), padding=1),  # (128, 4, 36) -> (256, 4, 36)
+            nn.Conv2d(256, 512, (3, 3), padding=1),  # (256, 4, 36) -> (512, 4, 36)
             nn.BatchNorm2d(512),
             nn.ReLU(),
-            nn.Conv2d(512, 512, (3, 3), padding=1),  # (256, 4, 37) -> (256, 4, 36)
+            nn.Conv2d(512, 512, (3, 3), padding=1),  # (512, 4, 36) -> (512, 4, 36)
             nn.BatchNorm2d(512),
             nn.ReLU(),
-            nn.Dropout2d(0.5),
-            nn.MaxPool2d((2, 1), 1),  # (256, 4, 36) -> (256, 3, 36)
-            nn.Conv2d(512, 512, (3, 3), padding=0),  # (256, 3, 36) -> (512, 1, 34)
+            nn.Dropout2d(0.3),
+            nn.MaxPool2d((2, 1), 1),  # (512, 4, 36) -> (512, 3, 36)
+            nn.Conv2d(512, 512, (3, 3), padding=0),  # (512, 3, 36) -> (512, 1, 34)
             nn.BatchNorm2d(512),
             nn.ReLU(),
         )

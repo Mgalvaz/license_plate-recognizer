@@ -1,4 +1,7 @@
+import json
 import random
+from typing import Literal
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import v2
@@ -105,7 +108,60 @@ class SyntheticPlateDataset(Dataset):
         label = torch.tensor([self.translator[l] for l in plate_text if l != ' '], dtype=torch.long)
         return plate, label
 
+class LPDataset(Dataset):
+    def __init__(self, path: str, split: Literal['test', 'train']) -> None:
+        super().__init__()
+        self.translator = dict((l, n) for n, l in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', start=1))
+        self.path = path + '\\' + split + '\\'
+        with open(path + r'\lp' + split + '.txt', 'r') as f:
+            self.dataset_ids = [line.rstrip('\n') for line in f]
+
+    def __len__(self) -> int:
+        return len(self.dataset_ids)
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        file_id, box_num = self.dataset_ids[index].split('_')
+        image_path = self.path + file_id + '.jpg'
+        label_path = self.path + file_id + '.json'
+        with open(label_path) as f:
+            full_label = json.load(f)
+        lp = full_label['lps'][int(box_num)]
+        # Crop the image to get the license plate
+        poly = np.array(lp['poly_coord'])
+        xmin = poly[:, 0].min()
+        ymin = poly[:, 1].min()
+        xmax = poly[:, 0].max()
+        ymax = poly[:, 1].max()
+        box = [xmin, ymin, xmax, ymax]
+        image = Image.open(image_path).crop(box).convert('L')
+        image_tensor = v2.PILToTensor()(image)
+        # License plate ID
+        plate_text = lp['lp_id'][3:]
+        label = torch.tensor([self.translator[l] for l in plate_text if l != '*'], dtype=torch.long)
+        return image_tensor, label
+
+
 if __name__ == '__main__':
+        # Path to the dataset
+    path = r'C:\Repositorio\license_plate-recognizer\dataset'+'\\'
+    split = 'train'
+    # Obtain the file names of the specified split
+    with open(path + split + '.txt', 'r') as f:
+        dataset_ids = [line.rstrip('\n') for line in f]
+    # Save each license plate as a different file
+    lps_names = []
+    for file_id in dataset_ids:
+        label_path = path + split + '\\' + file_id + '.json'
+        with open(label_path) as f:
+            full_label = json.load(f)
+        for i, lbl in enumerate(full_label['lps']):
+            lps_names.append(file_id + '_' + str(i))
+    # Write the file names
+    with open(path+r'\lp'+split+'.txt', 'x') as f:
+        f.write('\n'.join(lps_names))
+
+
+    exit()
     image = Image.open(r'C:\Repositorio\license_plate-recognizer\src\3245_LCX.png')
     transform = v2.Compose([
         v2.Grayscale(num_output_channels=1),
