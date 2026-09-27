@@ -23,14 +23,14 @@ Output:
 import argparse
 import torch
 from torch.utils.data import DataLoader
-from torchvision.ops import box_iou, nms
 from LPD_dataset import CarPlateDetectionDataset
-
+from torchvision.ops import MultiScaleRoIAlign, box_iou
+from torchvision.models import resnet50
 from torchvision.models.detection import FasterRCNN
 from torchvision.models.detection.backbone_utils import BackboneWithFPN
 from torchvision.models.detection.rpn import AnchorGenerator
-from torchvision.ops import MultiScaleRoIAlign
-from torchvision.models import resnet50
+
+
 
 
 def collate_fn(batch: list) -> tuple[torch.Tensor, list[torch.Tensor]]:
