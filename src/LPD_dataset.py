@@ -4,143 +4,52 @@ import numpy as np
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
 from PIL import Image
-import matplotlib.pyplot as plt
 
-def transform_img(image: Image.Image) -> torch.Tensor:
-    tr = v2.Compose([
-        v2.PILToTensor(),
-        v2.ToDtype(torch.float, True),
-    ])
-    return tr(image)
+class CarPlateDetectionDataset(Dataset):
+    """
+    Dataset with GT boxes for license plates in cars. See https://github.com/ramajoballester/UC3M-LP.
+    """
 
-class CarPlateTrainDataset(Dataset):
-
-    def __init__(self, path: str, compact: bool =False) -> None:
+    def __init__(self, path: str, split: str) -> None:
+        """
+        Dataset with GT boxes for license plates in cars. See https://github.com/ramajoballester/UC3M-LP.
+        :param path: Root directory of the dataset.
+        :param split: Type of split to use. Can be 'train' or 'test'.
+        """
         super().__init__()
-        self.compact = compact
-        if compact:
-            self.images = torch.load(path + 'images.train.pt', weights_only=True)
-            self.labels = torch.load(path + 'labels.train.pt', weights_only=True)
-        else:
-            self.path = path + 'train/'
-            self.train = []
-            with open(path + 'train.txt', 'r') as f:
-                self.train = [x.rstrip('\n') for x in f]
+        self.path = path + split + '/'
+        with open(path + split + '.txt', 'r') as f:
+            self.train = [x.rstrip('\n') for x in f]
 
     def __len__(self) -> int:
-        if self.compact:
-            return self.images.size(0)
-        else:
-            return len(self.train)
+        return len(self.train)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        if self.compact:
-            return self.images[index], self.labels[index]
-        else:
-            image_path = self.path + self.train[index] + '.jpg'
-            label_path = self.path + self.train[index] + '.json'
-            image = Image.open(image_path).convert('RGB')
-            image = transform_img(image)
-            with open(label_path) as f:
-                full_label = json.load(f)
-            boxes = []
-
-            for lp in full_label['lps']:
-                poly = np.array(lp["poly_coord"])
-                xmin = poly[:, 0].min()
-                ymin = poly[:, 1].min()
-                xmax = poly[:, 0].max()
-                ymax = poly[:, 1].max()
-                boxes.append([xmin, ymin, xmax, ymax])
-
-            boxes = torch.tensor(boxes, dtype=torch.float32)
-            labels = torch.ones(len(boxes), dtype=torch.int64)
-            target = {
-                "boxes": boxes,
-                "labels": labels,
-                "image_id": torch.tensor([index])
-            }
-        return image, target
-
-class CarPlateTestDataset(Dataset):
-
-    def __init__(self, path: str) -> None:
-        super().__init__()
-        self.path = path + 'test/'
-        self.test = []
-        with open(path+'test.txt', 'r') as f:
-            self.test = [x.rstrip('\n') for x in f]
-
-    def __len__(self) -> int:
-        return len(self.test)
-
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        image_path = self.path + self.test[index] + '.jpg'
-        label_path = self.path + self.test[index] + '.json'
-        image = Image.open(image_path)
-        w, h = image.size
-        scale_x = 768 / w
-        scale_y = 768 / h
-        image = transform_img(image)
+        image_path = self.path + self.train[index] + '.jpg'
+        label_path = self.path + self.train[index] + '.json'
+        image = Image.open(image_path).convert('RGB')
+        transform_image = v2.Compose([
+            v2.PILToTensor(),
+            v2.ToDtype(torch.float, True),
+        ])
+        image = transform_image(image)
         with open(label_path) as f:
             full_label = json.load(f)
-        labels = []
-        for lbl in full_label['lps']:
-            lp = torch.Tensor(lbl['poly_coord'])
-            x_min = lp[:, 0].min() * scale_x
-            y_min = lp[:, 1].min() * scale_y
-            x_max = lp[:, 0].max() * scale_x
-            y_max = lp[:, 1].max() * scale_y
-            labels.append(torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32))
-        labels = torch.stack(labels)
-        return image, labels
+        boxes = []
 
-def main():
-    dataset = CarPlateTrainDataset('dataset/', compact=True)
-    images = []
-    lbls = []
-    gt_widths = []
-    gt_heights = []
+        for lp in full_label['lps']:
+            poly = np.array(lp['poly_coord'])
+            xmin = poly[:, 0].min()
+            ymin = poly[:, 1].min()
+            xmax = poly[:, 0].max()
+            ymax = poly[:, 1].max()
+            boxes.append([xmin, ymin, xmax, ymax])
 
-    for img, label in dataset:
-        images.append(img)
-        lbls.append(label)
-
-        ws = label[:, 2] - label[:, 0]
-        hs = label[:, 3] - label[:, 1]
-        for width in ws:
-            gt_widths.append(width)
-        for height in hs:
-            gt_heights.append(height)
-
-    images = torch.stack(images)
-    torch.save(images, 'dataset/images.train.pt')
-    torch.save(lbls, 'dataset/labels.train.pt')
-
-    plt.figure()
-    plt.scatter(gt_widths, gt_heights, alpha=0.4)
-    plt.xlabel("GT width")
-    plt.ylabel("GT height")
-    plt.title("GT Height vs Width")
-    plt.grid(True)
-    plt.show()
-
-    plt.figure()
-    plt.hist(gt_widths, bins=30)
-    plt.xlabel("GT width")
-    plt.ylabel("count")
-    plt.title("GT width Histogram")
-    plt.grid(True)
-    plt.show()
-
-    plt.figure()
-    plt.hist(gt_heights, bins=30)
-    plt.xlabel("GT height")
-    plt.ylabel("count")
-    plt.title("GT height Histogram")
-    plt.grid(True)
-    plt.show()
-
-
-if __name__ == '__main__':
-    main()
+        boxes = torch.tensor(boxes, dtype=torch.float32)
+        labels = torch.ones(len(boxes), dtype=torch.int64)
+        target = {
+            'boxes': boxes,
+            'labels': labels,
+            'image_id': torch.tensor([index])
+        }
+        return image, target
